@@ -848,18 +848,19 @@ export class Game {
     return false;
   }
 
-  private finishByWorth() {
+  private finishByWorth(early = false) {
     const s = this.state;
     const ranked = this.activePlayers().sort((a, b) => this.netWorth(b.id) - this.netWorth(a.id));
     s.phase = 'gameover';
     s.winner = ranked[0].id;
     this.emit({ type: 'gameover', winner: s.winner });
-    this.log(`Round limit reached. 🏆 ${ranked[0].name} wins with a net worth of $${this.netWorth(ranked[0].id)}!`);
+    const why = early ? 'Game ended early.' : 'Round limit reached.';
+    this.log(`${why} 🏆 ${ranked[0].name} wins with a net worth of $${this.netWorth(ranked[0].id)}!`);
   }
 
   /** Ends the game now; the richest player wins. */
   forfeitToWorth() {
-    if (this.state.phase !== 'gameover') this.finishByWorth();
+    if (this.state.phase !== 'gameover') this.finishByWorth(true);
   }
 
   // ------------------------------------------------------------- trading

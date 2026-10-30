@@ -1118,7 +1118,7 @@ export class GameApp {
     m.body.innerHTML = `
       <div class="trophy">🏆</div>
       <div class="winner" style="--pc:${w.color}">${w.token} ${escapeHtml(w.name)} wins!</div>
-      <p class="muted center">Finished in ${s.round} rounds</p>
+      <p class="muted center">Finished in ${s.round} round${s.round === 1 ? '' : 's'}</p>
       <ol class="standings">${ranked
         .map((p) => `<li style="--pc:${p.color}" class="${p.bankrupt ? 'out' : ''}"><span>${p.token} ${escapeHtml(p.name)}</span><b>${p.bankrupt ? 'Bankrupt' : money(this.game.netWorth(p.id))}</b></li>`)
         .join('')}</ol>`;
