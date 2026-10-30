@@ -12,6 +12,10 @@ function setup(n = 2, settings = {}) {
   return g;
 }
 
+function skipAuction(g: Game) {
+  for (let k = 0; k < 8 && g.state.auction; k++) g.passBid(g.actor());
+}
+
 function own(g: Game, pid: number, ...tiles: number[]) {
   for (const t of tiles) g.state.props[t] = { owner: pid, houses: 0, mortgaged: false };
 }
@@ -76,11 +80,11 @@ describe('movement and buying', () => {
     g.forcedDice.push([3, 3], [2, 2], [1, 1]);
     g.roll();
     if (g.state.phase === 'buy') g.decline();
-    while (g.state.phase === 'auction') g.passBid(g.actor());
+    skipAuction(g);
     expect(g.state.phase).toBe('roll');
     g.roll();
     if (g.state.phase === 'buy') g.decline();
-    while (g.state.phase === 'auction') g.passBid(g.actor());
+    skipAuction(g);
     expect(g.state.phase).toBe('roll');
     g.roll();
     expect(g.cur.inJail).toBe(true);
@@ -113,7 +117,7 @@ describe('jail', () => {
       g.forcedDice.push([1, 2]);
       g.roll();
       if (g.state.phase === 'buy') g.decline();
-      while (g.state.phase === 'auction') g.passBid(g.actor());
+      skipAuction(g);
       g.endTurn();
     }
     g.forcedDice.push([1, 2]);
@@ -131,7 +135,7 @@ describe('jail', () => {
     expect(g.cur.inJail).toBe(false);
     expect(g.cur.pos).toBe(14);
     g.decline();
-    while (g.state.phase === 'auction') g.passBid(g.actor());
+    skipAuction(g);
     expect(g.state.phase).toBe('end');
   });
 });
@@ -315,7 +319,7 @@ describe('persistence', () => {
     g.forcedDice.push([2, 4]);
     g.roll();
     g.decline();
-    while (g.state.phase === 'auction') g.passBid(g.actor());
+    skipAuction(g);
     g.player(1).cash += 10;
     g.endTurn();
     expect(g.state.phase).toBe('gameover');
