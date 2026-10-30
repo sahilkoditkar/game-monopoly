@@ -282,7 +282,7 @@ export function decide(g: Game, pid: number, mem: AiMemory): AiAction {
       const limit = Math.min(value, p.cash - Math.min(reserve, 60));
       const min = g.minBid();
       if (min > limit) return { type: 'pass' };
-      const step = 5 * (1 + Math.floor(g.random() * 4));
+      const step = 10 * (1 + Math.floor(g.random() * 3));
       const amount = Math.min(Math.floor(limit), Math.max(min, a.bid + step));
       return { type: 'bid', amount };
     }
