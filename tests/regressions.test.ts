@@ -78,3 +78,20 @@ describe('review regressions', () => {
     expect(g.canBuild(0, 1)).toBe(false);
   });
 });
+
+describe('build hints', () => {
+  it('explains why building is blocked', () => {
+    const g = setup(2);
+    g.state.props[21] = { owner: 0, houses: 0, mortgaged: false };
+    g.state.props[23] = { owner: 1, houses: 0, mortgaged: false };
+    expect(g.buildBlocker(0, 21)).toMatch(/Own all 3 Riviera cities.*Rome \(P1\).*Paris \(unowned\)/);
+    g.state.props[23].owner = 0;
+    g.state.props[24] = { owner: 0, houses: 0, mortgaged: false };
+    expect(g.buildBlocker(0, 21)).toBeNull();
+    g.build(0, 21);
+    expect(g.buildBlocker(0, 21)).toMatch(/evenly/);
+    g.state.phase = 'end';
+    g.state.current = 1;
+    expect(g.buildBlocker(0, 23)).toMatch(/your own turn/);
+  });
+});

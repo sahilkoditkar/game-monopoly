@@ -702,18 +702,36 @@ export class Game {
   }
 
   canBuild(pid: number, tile: number): boolean {
+    return this.buildBlocker(pid, tile) === null;
+  }
+
+  /** Why `pid` can't build on `tile` right now, or null if they can. */
+  buildBlocker(pid: number, tile: number): string | null {
     const own = this.state.props[tile];
     const def = TILES[tile];
-    if (!this.canManage(pid) || this.state.phase === 'debt') return false;
-    if (!own || own.owner !== pid || def.kind !== 'property') return false;
-    if (own.houses >= 5 || !this.hasFullSet(pid, def.group!)) return false;
+    if (!own || own.owner !== pid || def.kind !== 'property') return 'Only your own cities can have houses.';
+    if (own.houses >= 5) return 'Fully built: it already has a hotel.';
+    if (!this.hasFullSet(pid, def.group!)) {
+      const tiles = groupTiles(def.group!);
+      const missing = tiles
+        .filter((i) => this.state.props[i]?.owner !== pid)
+        .map((i) => {
+          const o = this.ownerOf(i);
+          return `${TILES[i].name} (${o === null ? 'unowned' : this.player(o).name})`;
+        });
+      return `Own all ${tiles.length} ${GROUPS[def.group!].name} cities to build. Missing: ${missing.join(', ')}.`;
+    }
+    if (this.state.phase === 'debt') return 'Pay what you owe before building.';
+    if (!this.canManage(pid)) return 'You can build during your own turn.';
     const group = this.sameGroupTiles(tile).map((i) => this.state.props[i]);
-    if (group.some((o) => o.mortgaged)) return false;
-    if (own.houses > Math.min(...group.map((o) => o.houses))) return false;
-    if (this.player(pid).cash < houseCost(tile)) return false;
+    if (group.some((o) => o.mortgaged)) return 'Pay off the mortgages in this set first.';
+    if (own.houses > Math.min(...group.map((o) => o.houses)))
+      return 'Build evenly: add a house to the other cities in this set first.';
+    if (this.player(pid).cash < houseCost(tile)) return `You need $${houseCost(tile)} to build here.`;
     const supply = this.housesInUse();
-    if (own.houses === 4) return supply.hotels < MAX_HOTELS;
-    return supply.houses < MAX_HOUSES;
+    if (own.houses === 4 && supply.hotels >= MAX_HOTELS) return 'The bank has run out of hotels.';
+    if (own.houses < 4 && supply.houses >= MAX_HOUSES) return 'The bank has run out of houses.';
+    return null;
   }
 
   build(pid: number, tile: number): boolean {
