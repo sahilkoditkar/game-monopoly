@@ -41,7 +41,7 @@ interface Profile {
 
 const PROFILES: Record<Difficulty, Profile> = {
   easy: { reserve: 60, threatWeight: 0, setBonus: 1.2, blockBonus: 1, auctionFactor: 0.6, fairness: 0.3, trades: false, maxHouses: 2, mistakes: 0.3 },
-  normal: { reserve: 90, threatWeight: 0.45, setBonus: 1.8, blockBonus: 1.3, auctionFactor: 1.0, fairness: 0.75, trades: true, maxHouses: 4, mistakes: 0.12 },
+  normal: { reserve: 90, threatWeight: 0.45, setBonus: 1.8, blockBonus: 1.3, auctionFactor: 1.0, fairness: 0.75, trades: true, maxHouses: 5, mistakes: 0.12 },
   hard: { reserve: 25, threatWeight: 0.6, setBonus: 2.0, blockBonus: 1.3, auctionFactor: 1.0, fairness: 1.0, trades: true, maxHouses: 5, mistakes: 0 },
 };
 
