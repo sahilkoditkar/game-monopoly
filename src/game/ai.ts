@@ -146,10 +146,11 @@ function findTrade(g: Game, pid: number, mem: AiMemory): TradeOffer | null {
     const tiles = groupTiles(gid);
     const mine = tiles.filter((i) => g.ownerOf(i) === pid);
     const missing = tiles.filter((i) => g.ownerOf(i) !== pid);
-    if (mine.length === 0 || missing.length === 0 || missing.length > 1) continue;
+    if (mine.length === 0 || missing.length === 0 || missing.length > 2) continue;
+    // Everything we're missing must sit with one other player.
     const target = missing[0];
     const holder = g.ownerOf(target);
-    if (holder === null) continue;
+    if (holder === null || missing.some((i) => g.ownerOf(i) !== holder)) continue;
     if (tiles.some((i) => (g.state.props[i]?.houses ?? 0) > 0)) continue;
     const key = `${holder}:${target}`;
     if (mem.offers[key] !== undefined && g.state.turnCount - mem.offers[key] < 12) continue;
@@ -168,16 +169,19 @@ function findTrade(g: Game, pid: number, mem: AiMemory): TradeOffer | null {
 
     for (const withProp of sweetener !== undefined ? [true, false] : [false]) {
       const give: TradeSide = { ...emptySide(), tiles: withProp ? [sweetener!] : [] };
-      const get: TradeSide = { ...emptySide(), tiles: [target] };
+      const get: TradeSide = { ...emptySide(), tiles: missing };
       const maxCash = Math.max(0, me.cash - reserve);
-      for (let cash = 0; cash <= maxCash; cash += 25) {
+      const step = Math.max(25, Math.round(TILES[target].price! / 10));
+      // Price the offer for how picky the receiver is (humans are treated like a normal AI).
+      const other = g.player(holder);
+      const fairness = other.ai ? profileOf(g, holder).fairness : PROFILES.normal.fairness;
+      for (let cash = 0; cash <= maxCash; cash += step) {
         give.cash = cash;
         const offer: TradeOffer = { from: pid, to: holder, give: { ...give }, get: { ...get } };
         if (g.validateTrade(offer)) break;
         const gains = tradeGains(g, offer);
         if (gains.from <= 0) break;
-        // Pretend the receiver is a normal-strength player to price the offer.
-        const fair = gains.to > 0 && gains.to >= gains.from * PROFILES.normal.fairness;
+        const fair = gains.to > 0 && gains.to >= gains.from * fairness;
         if (fair) {
           mem.offers[key] = g.state.turnCount;
           return offer;
