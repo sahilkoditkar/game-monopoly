@@ -496,7 +496,8 @@ export class Game {
     if (amount <= 0) return;
     const payer = this.player(from);
     if (payer.bankrupt) return;
-    if (this.state.debts.length === 0 && payer.cash >= amount) {
+    const behind = this.state.debts.some((d) => d.from === from);
+    if (!behind && payer.cash >= amount) {
       this.pay(from, to, amount, reason, toPot);
     } else {
       this.state.debts.push({ from, to, amount, reason, toPot });
@@ -678,6 +679,7 @@ export class Game {
     s.rollAgain = false;
     s.doublesCount = 0;
     s.lastCard = null;
+    s.debts = [];
     let next = s.current;
     do next = (next + 1) % s.players.length;
     while (s.players[next].bankrupt);
@@ -702,7 +704,8 @@ export class Game {
   canBuild(pid: number, tile: number): boolean {
     const own = this.state.props[tile];
     const def = TILES[tile];
-    if (!this.canManage(pid) || !own || own.owner !== pid || def.kind !== 'property') return false;
+    if (!this.canManage(pid) || this.state.phase === 'debt') return false;
+    if (!own || own.owner !== pid || def.kind !== 'property') return false;
     if (own.houses >= 5 || !this.hasFullSet(pid, def.group!)) return false;
     const group = this.sameGroupTiles(tile).map((i) => this.state.props[i]);
     if (group.some((o) => o.mortgaged)) return false;
@@ -727,16 +730,18 @@ export class Game {
     const own = this.state.props[tile];
     if (!this.canManage(pid) || !own || own.owner !== pid || own.houses === 0) return false;
     const group = this.sameGroupTiles(tile).map((i) => this.state.props[i]);
-    if (own.houses < Math.max(...group.map((o) => o.houses))) return false;
-    if (own.houses === 5 && this.housesInUse().houses > MAX_HOUSES - 4) return false;
-    return true;
+    return own.houses >= Math.max(...group.map((o) => o.houses));
   }
 
   sell(pid: number, tile: number): boolean {
     if (!this.canSell(pid, tile)) return false;
     const own = this.state.props[tile];
-    own.houses--;
-    this.gain(this.player(pid), houseCost(tile) / 2, `Sold building on ${TILES[tile].name}`);
+    let next = own.houses - 1;
+    // A hotel normally breaks down into 4 houses; if the bank is short, take what's left.
+    if (own.houses === 5) next = Math.min(4, MAX_HOUSES - this.housesInUse().houses);
+    const refund = ((own.houses - next) * houseCost(tile)) / 2;
+    own.houses = next;
+    this.gain(this.player(pid), refund, `Sold building on ${TILES[tile].name}`);
     this.emit({ type: 'build', player: pid, tile, houses: own.houses });
     this.log(`${this.player(pid).name} sold a building on ${TILES[tile].name}.`);
     this.settleDebts();
@@ -784,16 +789,21 @@ export class Game {
   declareBankruptcy(): boolean {
     const s = this.state;
     if (s.phase !== 'debt' || !s.debts.length) return false;
-    const debt = s.debts[0];
-    const p = this.player(debt.from);
-    const creditor = debt.to;
+    const p = this.player(s.debts[0].from);
+    // A player creditor takes the estate ahead of the bank.
+    const creditor = s.debts.find((d) => d.from === p.id && d.to !== null)?.to ?? null;
     // Liquidate buildings for their sale value.
+    let sold = 0;
     for (const i of this.ownedBy(p.id)) {
       const o = s.props[i];
       if (o.houses) {
-        p.cash += (o.houses * houseCost(i)) / 2;
+        sold += (o.houses * houseCost(i)) / 2;
         o.houses = 0;
       }
+    }
+    if (sold) {
+      p.cash += sold;
+      this.emit({ type: 'money', player: p.id, delta: sold, reason: 'Buildings sold' });
     }
     const cash = Math.max(0, Math.floor(p.cash));
     if (creditor !== null) {
@@ -817,7 +827,8 @@ export class Game {
     p.jailCards = [];
     p.bankrupt = true;
     p.inJail = false;
-    s.debts = s.debts.filter((d) => d.from !== p.id);
+    // Debts from the bankrupt player are void, and so are debts owed to them.
+    s.debts = s.debts.filter((d) => d.from !== p.id && d.to !== p.id);
     this.emit({ type: 'bankrupt', player: p.id, to: creditor });
     this.log(
       `${p.name} is bankrupt! ${creditor !== null ? `${this.player(creditor).name} takes everything.` : 'Their properties return to the bank.'}`,
@@ -848,18 +859,19 @@ export class Game {
     return false;
   }
 
-  private finishByWorth() {
+  private finishByWorth(early = false) {
     const s = this.state;
     const ranked = this.activePlayers().sort((a, b) => this.netWorth(b.id) - this.netWorth(a.id));
     s.phase = 'gameover';
     s.winner = ranked[0].id;
     this.emit({ type: 'gameover', winner: s.winner });
-    this.log(`Round limit reached. 🏆 ${ranked[0].name} wins with a net worth of $${this.netWorth(ranked[0].id)}!`);
+    const why = early ? 'Game ended early.' : 'Round limit reached.';
+    this.log(`${why} 🏆 ${ranked[0].name} wins with a net worth of $${this.netWorth(ranked[0].id)}!`);
   }
 
   /** Ends the game now; the richest player wins. */
   forfeitToWorth() {
-    if (this.state.phase !== 'gameover') this.finishByWorth();
+    if (this.state.phase !== 'gameover') this.finishByWorth(true);
   }
 
   // ------------------------------------------------------------- trading
