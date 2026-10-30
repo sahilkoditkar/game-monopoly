@@ -826,7 +826,10 @@ export class GameApp {
         const sec = el('div', 'manage-group');
         sec.style.setProperty('--g', g?.color ?? (key === 'transit' ? '#64748b' : '#0e7490'));
         const full = g && this.game.hasFullSet(pid, key);
-        sec.innerHTML = `<div class="mg-title">${g ? escapeHtml(g.name) : key === 'transit' ? '✈️ Skyports' : '⚡ Utilities'} ${full ? '<span class="tag good">Full set</span>' : ''}</div>`;
+        const total = g ? TILES.filter((x) => x.group === key).length : 0;
+        const progress = g ? (full ? '<span class="tag good">Full set · can build</span>' : `<span class="tag">${tiles.length}/${total} owned</span>`) : '';
+        sec.innerHTML = `<div class="mg-title">${g ? escapeHtml(g.name) : key === 'transit' ? '✈️ Skyports' : '⚡ Utilities'} ${progress}</div>`;
+        if (g && !full) sec.appendChild(el('div', 'build-hint', `🔒 ${escapeHtml(this.game.buildBlocker(pid, tiles[0]) ?? '')}`));
         for (const t of tiles) {
           const o = this.s.props[t];
           const row = el('div', `mrow ${o.mortgaged ? 'mortgaged' : ''}`);
@@ -843,12 +846,14 @@ export class GameApp {
             btns.appendChild(button(`Mortgage +${money(mortgageValue(t))}`, 'small ghost', () => this.act(() => this.game.mortgage(pid, t)), !can || !this.game.canMortgage(pid, t)));
           row.appendChild(btns);
           sec.appendChild(row);
+          const why = full && can && o.houses < 5 ? this.game.buildBlocker(pid, t) : null;
+          if (why) sec.appendChild(el('div', 'build-hint', `ℹ️ ${escapeHtml(why)}`));
         }
         list.appendChild(sec);
       }
       m.body.appendChild(list);
       if (!can) m.body.appendChild(el('p', 'muted small', 'You can manage properties during your own turn.'));
-      else m.body.appendChild(el('p', 'muted small', 'Build evenly across a full set. Mortgaging needs the whole set free of buildings.'));
+      else m.body.appendChild(el('p', 'muted small', 'To build, own every city in a colour set. Houses go on evenly, then a hotel. Mortgaging needs the whole set free of buildings.'));
     };
     update();
     this.registerLive(m, update);
@@ -906,6 +911,13 @@ export class GameApp {
         if (own.mortgaged) row.appendChild(button('Pay off', 'small gold', () => this.act(() => this.game.unmortgage(pid, i)), this.busy || !this.game.canUnmortgage(pid, i)));
         else row.appendChild(button('Mortgage', 'small ghost', () => this.act(() => this.game.mortgage(pid, i)), this.busy || !this.game.canMortgage(pid, i)));
         m.body.appendChild(row);
+      }
+      if (own && t.kind === 'property' && own.houses < 5) {
+        const viewer = human ?? this.s.players.find((p) => !p.ai && p.id === own.owner);
+        if (viewer && viewer.id === own.owner) {
+          const why = this.game.buildBlocker(viewer.id, i);
+          if (why) m.body.appendChild(el('div', 'build-hint center', `🔒 ${escapeHtml(why)}`));
+        }
       }
     };
     update();
