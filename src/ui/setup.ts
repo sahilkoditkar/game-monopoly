@@ -3,7 +3,11 @@ import { el, escapeHtml } from './fx';
 import { play, unlockAudio } from './sound';
 
 export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑', '🐶'];
-export const COLORS = ['#ff4d6d', '#3a86ff', '#2ec4b6', '#ffbe0b'];
+/**
+ * Player colours: four clearly different hues (red-orange, blue, yellow, green)
+ * based on the Okabe-Ito palette, which stays distinguishable for common colour blindness.
+ */
+export const COLORS = ['#e8590c', '#1c7ed6', '#fcc419', '#0ca678'];
 const AI_NAMES = ['Ava', 'Bolt', 'Cleo', 'Dex', 'Echo', 'Fizz'];
 
 interface Seat {
@@ -149,7 +153,10 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           const ai = b.dataset.ai === '1';
           if (ai !== s.ai) {
             s.ai = ai;
-            if (ai && /^Player \d$/.test(s.name)) s.name = AI_NAMES[i];
+            if (ai && /^Player \d$/.test(s.name)) {
+              const used = new Set(seats.slice(0, count).map((x) => x.name));
+              s.name = AI_NAMES.find((n) => !used.has(n)) ?? `Bot ${i + 1}`;
+            }
             if (!ai && AI_NAMES.includes(s.name)) s.name = `Player ${i + 1}`;
           }
           play('click');
