@@ -7,7 +7,7 @@ import { BoardView } from './board';
 import { DicePair } from './dice';
 import { centerOf, confetti, countTo, el, escapeHtml, floatText, flyCoins, money, sleep, toast } from './fx';
 import { button, deedCard, openModal, type ModalHandle } from './modal';
-import { RULES_HTML } from './setup';
+import { RULES_HTML, legacyToken } from './setup';
 import { isMuted, play, setMuted } from './sound';
 
 type Speed = 'normal' | 'fast' | 'turbo';
@@ -25,6 +25,7 @@ export function loadSave(): { state: GameState; mem: AiMemory[] } | null {
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (data?.state?.version !== 1 || data.state.phase === 'gameover') return null;
+    data.state.players.forEach((p: { token: string }, i: number) => (p.token = legacyToken(p.token, i)));
     return data;
   } catch {
     return null;

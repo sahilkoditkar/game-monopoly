@@ -20,6 +20,13 @@ export interface SetupResult {
 
 const STORE = 'st-setup';
 
+/** Setups saved by the street version stored a piece name instead of an emoji. */
+const PIECE_EMOJI: Record<string, string> = { car: '🏎️', robot: '🤖', walker: '🚶', pin: '📍' };
+export function legacyToken(token: string | undefined, seat: number): string {
+  if (token && PIECE_EMOJI[token]) return PIECE_EMOJI[token];
+  return token || TOKENS[seat % TOKENS.length];
+}
+
 function loadSetup(): { count: number; seats: Seat[]; settings: Partial<Settings> } | null {
   try {
     const raw = localStorage.getItem(STORE);
@@ -48,7 +55,7 @@ const skylineSvg = `
 export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart: (r: SetupResult) => void; onContinue: () => void; onRules: () => void }) {
   const saved = loadSetup();
   let count = saved?.count ?? 2;
-  const seats: Seat[] = saved?.seats?.length === 4 ? saved.seats : defaultSeats();
+  const seats: Seat[] = saved?.seats?.length === 4 ? saved.seats.map((x, i) => ({ ...x, token: legacyToken(x.token ?? (x as { piece?: string }).piece, i) })) : defaultSeats();
   const settings: Settings = {
     startingCash: 1500,
     salary: 200,
