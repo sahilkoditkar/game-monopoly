@@ -101,6 +101,7 @@ interface TileView {
   top: THREE.MeshStandardMaterial;
   extra: THREE.Group;
   sig: string;
+  tex: THREE.CanvasTexture;
 }
 
 export class Board3D implements GameScene {
@@ -114,9 +115,9 @@ export class Board3D implements GameScene {
   private raf = 0;
   private W = 0;
   private H = 0;
-  private yaw = 0.35;
-  private pitch = 0.95;
-  private dist = 14;
+  private yaw = 0;
+  private pitch = 1.18;
+  private dist = 15;
   private zoomOut = 0;
   private hold = false;
   private focus = new THREE.Vector3();
@@ -241,29 +242,8 @@ export class Board3D implements GameScene {
     const geo = new THREE.BoxGeometry(0.96, 0.14, 0.96);
     const side = std('#e9dfc8');
     TILES.forEach((t, i) => {
-      const top = new THREE.MeshStandardMaterial({
-        roughness: 0.75,
-        map: canvasTexture(256, 256, (g) => {
-          g.fillStyle = i % 10 === 0 ? '#ffe7a8' : '#f7f0e1';
-          g.fillRect(0, 0, 256, 256);
-          if (t.group) {
-            g.fillStyle = GROUPS[t.group].color;
-            g.fillRect(0, 0, 256, 58);
-          }
-          g.textAlign = 'center';
-          g.textBaseline = 'middle';
-          g.font = `92px ${EMOJI}`;
-          g.fillText(t.icon, 128, 134);
-          g.fillStyle = '#1d2142';
-          g.font = '600 32px Fredoka, "DM Sans", sans-serif';
-          g.fillText(t.short, 128, 212, 240);
-          if (t.price) {
-            g.font = '700 24px "DM Sans", sans-serif';
-            g.fillStyle = '#4b5078';
-            g.fillText(`$${t.price}`, 128, 240);
-          }
-        }),
-      });
+      const tex = canvasTexture(256, 256, (g) => this.paintTile(g, i));
+      const top = new THREE.MeshStandardMaterial({ roughness: 0.75, map: tex });
       const mesh = new THREE.Mesh(geo, [side, side, top, side, side, side]);
       mesh.position.copy(tilePos(i)).setY(0.07);
       mesh.rotation.y = tileYaw(i);
@@ -274,19 +254,55 @@ export class Board3D implements GameScene {
       const extra = new THREE.Group();
       extra.position.copy(tilePos(i)).setY(0.14);
       s.add(extra);
-      this.tiles.push({ mesh, top, extra, sig: '' });
+      this.tiles.push({ mesh, top, extra, sig: '', tex });
+      void t;
     });
+  }
+
+  /** Tile artwork: big name and price, or the owner's name and current rent once bought. */
+  private paintTile(g: CanvasRenderingContext2D, i: number) {
+    const t = TILES[i], o = this.view.state.props[i];
+    g.clearRect(0, 0, 256, 256);
+    g.fillStyle = i % 10 === 0 ? '#ffe7a8' : '#f7f0e1';
+    g.fillRect(0, 0, 256, 256);
+    if (t.group) {
+      g.fillStyle = GROUPS[t.group].color;
+      g.fillRect(0, 0, 256, 50);
+    }
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = `64px ${EMOJI}`;
+    g.fillText(t.icon, 128, 100);
+    g.fillStyle = '#1d2142';
+    g.font = '700 40px Fredoka, "DM Sans", sans-serif';
+    g.fillText(t.short, 128, 158, 244);
+    if (o) {
+      const p = this.view.state.players[o.owner];
+      g.fillStyle = p.color;
+      g.fillRect(0, 186, 256, 70);
+      g.fillStyle = '#ffffff';
+      g.font = '700 26px "DM Sans", sans-serif';
+      g.fillText(p.name.slice(0, 12), 128, 206);
+      g.font = '800 30px "DM Sans", sans-serif';
+      g.fillText(o.mortgaged ? 'MORTGAGED' : `RENT $${this.view.rentOf(i)}`, 128, 238);
+    } else if (t.price || t.tax) {
+      g.fillStyle = '#4b5078';
+      g.font = '800 34px "DM Sans", sans-serif';
+      g.fillText(t.price ? `$${t.price}` : `Pay $${t.tax}`, 128, 214);
+    }
   }
 
   /** Rebuilds the owner frame, flag and buildings on a tile when its state changes. */
   private syncTile(i: number) {
     const tv = this.tiles[i], o = this.view.state.props[i];
-    const sig = o ? `${o.owner}:${o.houses}:${o.mortgaged}` : '';
+    const sig = o ? `${o.owner}:${o.houses}:${o.mortgaged}:${this.view.rentOf(i)}` : '';
     if (sig === tv.sig && this.grows[i] === undefined && this.flags[i] === undefined) return;
     const changed = sig !== tv.sig;
     tv.sig = sig;
-    tv.top.color.set(o?.mortgaged ? '#8a8a9a' : '#ffffff');
+    tv.top.color.set(o?.mortgaged ? '#9a9aaa' : '#ffffff');
     if (changed) {
+      this.paintTile(tv.tex.image.getContext('2d'), i);
+      tv.tex.needsUpdate = true;
       tv.extra.clear();
       if (!o) return;
       const pc = this.view.state.players[o.owner].color;
@@ -598,7 +614,7 @@ export class Board3D implements GameScene {
   /** Where the camera looks: mostly at the followed piece, a little towards the centre. */
   private pieceTarget() {
     const u = this.view.disp[this.view.follow] ?? 0, a = Math.floor(u);
-    return tilePos(a).lerp(tilePos(a + 1), u - a).multiplyScalar(0.55);
+    return tilePos(a).lerp(tilePos(a + 1), u - a).multiplyScalar(0.3);
   }
 
   private frame(dt: number, now: number) {
@@ -618,7 +634,6 @@ export class Board3D implements GameScene {
     });
     if (!this.hold) this.camTarget.lerp(this.pieceTarget(), 1 - Math.pow(0.02, dt));
     this.focus.copy(this.camTarget);
-    if (!this.dragging && this.view.moving === null && !reduced()) this.yaw += dt * 0.02;
     const dist = this.dist + this.zoomOut * 8;
     const pitch = this.pitch + this.zoomOut * 0.3;
     const c = this.camera;
