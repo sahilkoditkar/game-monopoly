@@ -4,15 +4,17 @@ import { play, unlockAudio } from './sound';
 
 export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑', '🐶'];
 /**
- * Player colours: four clearly different hues (red-orange, blue, yellow, green)
- * based on the Okabe-Ito palette, which stays distinguishable for common colour blindness.
+ * Player colours to pick from. The 8 city sets already use brown, light blue, pink, orange,
+ * red, yellow, green and dark blue, so players get the colours left over: white, violet,
+ * lime, dark teal and graphite. The first four are the defaults for seats 1-4.
  */
-export const COLORS = ['#e8590c', '#1c7ed6', '#fcc419', '#0ca678'];
+export const COLORS = ['#f8f9fa', '#9c36b5', '#a9e34b', '#0b7285', '#5c636a'];
 const AI_NAMES = ['Ava', 'Bolt', 'Cleo', 'Dex', 'Echo', 'Fizz'];
 
 interface Seat {
   name: string;
   token: string;
+  color: string;
   ai: boolean;
   difficulty: Difficulty;
 }
@@ -42,10 +44,10 @@ function loadSetup(): { count: number; seats: Seat[]; settings: Partial<Settings
 
 function defaultSeats(): Seat[] {
   return [
-    { name: 'Player 1', token: TOKENS[0], ai: false, difficulty: 'normal' },
-    { name: AI_NAMES[0], token: TOKENS[1], ai: true, difficulty: 'normal' },
-    { name: AI_NAMES[1], token: TOKENS[2], ai: true, difficulty: 'normal' },
-    { name: AI_NAMES[2], token: TOKENS[3], ai: true, difficulty: 'normal' },
+    { name: 'Player 1', token: TOKENS[0], color: COLORS[0], ai: false, difficulty: 'normal' },
+    { name: AI_NAMES[0], token: TOKENS[1], color: COLORS[1], ai: true, difficulty: 'normal' },
+    { name: AI_NAMES[1], token: TOKENS[2], color: COLORS[2], ai: true, difficulty: 'normal' },
+    { name: AI_NAMES[2], token: TOKENS[3], color: COLORS[3], ai: true, difficulty: 'normal' },
   ];
 }
 
@@ -59,7 +61,11 @@ const skylineSvg = `
 export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart: (r: SetupResult) => void; onContinue: () => void; onRules: () => void }) {
   const saved = loadSetup();
   let count = saved?.count ?? 2;
-  const seats: Seat[] = saved?.seats?.length === 4 ? saved.seats.map((x, i) => ({ ...x, token: legacyToken(x.token ?? (x as { piece?: string }).piece, i) })) : defaultSeats();
+  const seats: Seat[] = saved?.seats?.length === 4 ? saved.seats.map((x, i) => ({ ...x, token: legacyToken(x.token ?? (x as { piece?: string }).piece, i), color: COLORS.includes(x.color) ? x.color : COLORS[i] })) : defaultSeats();
+  // Colours must stay unique, even in setups saved before the picker existed.
+  seats.forEach((s, i) => {
+    if (seats.slice(0, i).some((o) => o.color === s.color)) s.color = COLORS.find((c) => !seats.some((o) => o.color === c)) ?? s.color;
+  });
   const settings: Settings = {
     startingCash: 1500,
     salary: 200,
@@ -121,7 +127,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
     for (let i = 0; i < count; i++) {
       const s = seats[i];
       const row = el('div', 'seat');
-      row.style.setProperty('--pc', COLORS[i]);
+      row.style.setProperty('--pc', s.color);
       row.innerHTML = `
         <button class="seat-token" title="Change token">${s.token}</button>
         <input class="seat-name" maxlength="14" value="${escapeHtml(s.name)}" aria-label="Player ${i + 1} name"/>
@@ -135,7 +141,18 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
                 .map((d) => `<option value="${d}" ${d === s.difficulty ? 'selected' : ''}>${d[0].toUpperCase() + d.slice(1)}</option>`)
                 .join('')}</select>`
             : ''
-        }`;
+        }
+        <div class="color-pick" role="group" aria-label="Player ${i + 1} colour">${COLORS.map((c) => `<button class="${c === s.color ? 'on' : ''}" data-color="${c}" style="--sw:${c}" aria-label="Colour ${c}" aria-pressed="${c === s.color}"></button>`).join('')}</div>`;
+      row.querySelectorAll<HTMLButtonElement>('[data-color]').forEach((b) =>
+        b.addEventListener('click', () => {
+          // Colours stay unique: swap with whoever already has it.
+          const other = seats.slice(0, count).find((x) => x !== s && x.color === b.dataset.color);
+          if (other) other.color = s.color;
+          s.color = b.dataset.color!;
+          play('click');
+          draw();
+        }),
+      );
       row.querySelector('.seat-token')!.addEventListener('click', () => {
         const used = new Set(seats.slice(0, count).map((x) => x.token));
         let k = TOKENS.indexOf(s.token);
@@ -191,7 +208,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
       const players: PlayerConfig[] = chosen.map((s, i) => ({
         name: s.name.trim() || (s.ai ? AI_NAMES[i] : `Player ${i + 1}`),
         token: s.token,
-        color: COLORS[i],
+        color: s.color,
         ai: s.ai,
         difficulty: s.difficulty,
       }));
