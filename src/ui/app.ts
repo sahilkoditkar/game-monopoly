@@ -10,6 +10,7 @@ import { pieceIcon, pieceKind } from './pieces';
 import type { GameScene, HandoffMode, SceneView } from './scene';
 import { RULES_HTML } from './setup';
 import { isMuted, play, setMuted } from './sound';
+import { Board2D } from './board2d';
 import { StreetScene } from './street';
 
 type Speed = 'normal' | 'fast' | 'turbo';
@@ -22,7 +23,7 @@ const P2D6: Record<number, number> = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 5,
 const SAVE_KEY = 'st-save';
 const PREFS_KEY = 'st-prefs';
 
-export type ViewMode = 'street' | 'board3d';
+export type ViewMode = 'board' | 'street' | 'board3d';
 
 /** Everything the player can switch on or off. Defaults keep the screen simple. */
 interface Prefs {
@@ -34,7 +35,7 @@ interface Prefs {
   minimap: boolean;
   ticker: boolean;
 }
-const DEFAULT_PREFS: Prefs = { view: 'street', handoff: 'zoom', speed: 'normal', nextUp: true, markers: true, minimap: true, ticker: true };
+const DEFAULT_PREFS: Prefs = { view: 'board', handoff: 'zoom', speed: 'normal', nextUp: true, markers: true, minimap: true, ticker: true };
 
 function loadPrefs(): Prefs {
   try {
@@ -170,12 +171,13 @@ export class GameApp {
         const { Board3D } = await import('./board3d');
         scene = new Board3D(this.sceneHost, this.view);
       } catch {
-        toast('The 3D board could not load here, so the street is shown instead.', 'bad');
-        this.prefs.view = 'street';
+        toast('The 3D board could not load here, so the flat board is shown instead.', 'bad');
+        this.prefs.view = 'board';
         savePrefs(this.prefs);
-        scene = new StreetScene(this.sceneHost, this.view);
+        scene = new Board2D(this.sceneHost, this.view);
       }
-    } else scene = new StreetScene(this.sceneHost, this.view);
+    } else if (this.prefs.view === 'street') scene = new StreetScene(this.sceneHost, this.view);
+    else scene = new Board2D(this.sceneHost, this.view);
     scene.speed = this.t.scene;
     this.scene = scene;
     this.sceneHost.classList.toggle('is-3d', this.prefs.view === 'board3d');
@@ -240,7 +242,7 @@ export class GameApp {
       <label class="set-row switch"><input type="checkbox" data-toggle="${key}" ${this.prefs[key] ? 'checked' : ''}/><span></span><div class="set-label">${label}<small>${note}</small></div></label>`;
     body.innerHTML = `
       <h4>Look</h4>
-      ${seg<ViewMode>('view', 'View', [['street', '🚗 Street'], ['board3d', '🎲 3D board']])}
+      ${seg<ViewMode>('view', 'View', [['board', '🎲 Board'], ['street', '🚗 Street'], ['board3d', '🧊 3D']])}
       ${seg<HandoffMode>('handoff', 'Turn change', [['zoom', 'Zoom + card'], ['card', 'Card'], ['instant', 'Instant']])}
       ${seg<Speed>('speed', 'Speed', [['normal', 'Normal'], ['fast', 'Fast'], ['turbo', 'Turbo']])}
       <h4>Helpers</h4>
