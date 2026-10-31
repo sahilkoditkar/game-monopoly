@@ -2084,3 +2084,67 @@ select {
     opacity: 0;
   }
 }
+
+/* Setup: emoji grid */
+.token-pick {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.token-pick button {
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: 10px;
+  font-size: 1.35rem;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.06);
+}
+.token-pick button.on {
+  box-shadow: inset 0 0 0 2px #fff;
+  background: rgba(255, 255, 255, 0.18);
+}
+.token-pick button:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+.color-pick button {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
+/* Player cards: a wide block of the player's colour behind the token plus a coloured border,
+   so each card is identifiable at a glance while the rest stays on theme. */
+.pcard {
+  padding-left: 8px;
+  column-gap: 16px;
+  grid-template-areas: 'av info cash' 'av props props';
+  box-shadow: inset 0 0 0 2px var(--pc);
+}
+.pcard::before {
+  width: 56px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--pc) 85%, #ffffff), var(--pc));
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.25);
+}
+.pcard .avatar {
+  position: relative;
+  align-self: center;
+  background: radial-gradient(circle at 35% 28%, #ffffff, #e9ebf5);
+  box-shadow: 0 0 0 2px #fff, 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+.pcard.active {
+  box-shadow: inset 0 0 0 3px var(--pc), 0 0 0 2px #fff, 0 0 26px color-mix(in srgb, var(--pc) 70%, transparent);
+}
+.game.portrait .pcard {
+  padding-left: 6px;
+  column-gap: 12px;
+}
+.game.portrait .pcard::before {
+  width: 44px;
+}
+.token-pick[hidden] {
+  display: none;
+}
