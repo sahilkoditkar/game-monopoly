@@ -1,18 +1,16 @@
 import type { Difficulty, PlayerConfig, Settings } from '../game/types';
 import { el, escapeHtml } from './fx';
-import { PIECES, PIECE_COLORS, pieceIcon, pieceKind, type PieceKind } from './pieces';
 import { play, unlockAudio } from './sound';
 
+export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑', '🐶'];
+export const COLORS = ['#ff4d6d', '#3a86ff', '#2ec4b6', '#ffbe0b'];
 const AI_NAMES = ['Ava', 'Bolt', 'Cleo', 'Dex', 'Echo', 'Fizz'];
 
 interface Seat {
   name: string;
-  piece: PieceKind;
-  color: string;
+  token: string;
   ai: boolean;
   difficulty: Difficulty;
-  /** Older saved setups stored an emoji token. */
-  token?: string;
 }
 
 export interface SetupResult {
@@ -33,15 +31,11 @@ function loadSetup(): { count: number; seats: Seat[]; settings: Partial<Settings
 
 function defaultSeats(): Seat[] {
   return [
-    { name: 'Player 1', piece: 'car', color: PIECE_COLORS[0], ai: false, difficulty: 'normal' },
-    { name: AI_NAMES[0], piece: 'robot', color: PIECE_COLORS[1], ai: true, difficulty: 'normal' },
-    { name: AI_NAMES[1], piece: 'walker', color: PIECE_COLORS[2], ai: true, difficulty: 'normal' },
-    { name: AI_NAMES[2], piece: 'pin', color: PIECE_COLORS[3], ai: true, difficulty: 'normal' },
+    { name: 'Player 1', token: TOKENS[0], ai: false, difficulty: 'normal' },
+    { name: AI_NAMES[0], token: TOKENS[1], ai: true, difficulty: 'normal' },
+    { name: AI_NAMES[1], token: TOKENS[2], ai: true, difficulty: 'normal' },
+    { name: AI_NAMES[2], token: TOKENS[3], ai: true, difficulty: 'normal' },
   ];
-}
-
-function upgradeSeats(seats: Seat[]): Seat[] {
-  return seats.map((s, i) => ({ ...s, piece: s.piece ?? pieceKind(s.token ?? ''), color: s.color ?? PIECE_COLORS[i] }));
 }
 
 const skylineSvg = `
@@ -54,7 +48,7 @@ const skylineSvg = `
 export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart: (r: SetupResult) => void; onContinue: () => void; onRules: () => void }) {
   const saved = loadSetup();
   let count = saved?.count ?? 2;
-  const seats: Seat[] = saved?.seats?.length === 4 ? upgradeSeats(saved.seats) : defaultSeats();
+  const seats: Seat[] = saved?.seats?.length === 4 ? saved.seats : defaultSeats();
   const settings: Settings = {
     startingCash: 1500,
     salary: 200,
@@ -116,9 +110,9 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
     for (let i = 0; i < count; i++) {
       const s = seats[i];
       const row = el('div', 'seat');
-      row.style.setProperty('--pc', s.color);
+      row.style.setProperty('--pc', COLORS[i]);
       row.innerHTML = `
-        <div class="seat-piece">${pieceIcon(s.piece, s.color, 40)}</div>
+        <button class="seat-token" title="Change token">${s.token}</button>
         <input class="seat-name" maxlength="14" value="${escapeHtml(s.name)}" aria-label="Player ${i + 1} name"/>
         <div class="seg small type-seg">
           <button class="${!s.ai ? 'on' : ''}" data-ai="0">👤 Human</button>
@@ -130,28 +124,16 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
                 .map((d) => `<option value="${d}" ${d === s.difficulty ? 'selected' : ''}>${d[0].toUpperCase() + d.slice(1)}</option>`)
                 .join('')}</select>`
             : ''
-        }
-        <div class="seat-look">
-          <div class="piece-pick" role="group" aria-label="Piece">${PIECES.map((pc) => `<button class="${pc.id === s.piece ? 'on' : ''}" data-piece="${pc.id}" title="${pc.label}" aria-pressed="${pc.id === s.piece}">${pieceIcon(pc.id, s.color, 26)}</button>`).join('')}</div>
-          <div class="color-pick" role="group" aria-label="Colour">${PIECE_COLORS.map((c) => `<button class="${c === s.color ? 'on' : ''}" data-color="${c}" style="--sw:${c}" aria-label="Colour ${c}" aria-pressed="${c === s.color}"></button>`).join('')}</div>
-        </div>`;
-      row.querySelectorAll<HTMLButtonElement>('[data-piece]').forEach((b) =>
-        b.addEventListener('click', () => {
-          s.piece = b.dataset.piece as PieceKind;
-          play('click');
-          draw();
-        }),
-      );
-      row.querySelectorAll<HTMLButtonElement>('[data-color]').forEach((b) =>
-        b.addEventListener('click', () => {
-          // Colours stay unique: swap with whoever already has it.
-          const other = seats.slice(0, count).find((x) => x !== s && x.color === b.dataset.color);
-          if (other) other.color = s.color;
-          s.color = b.dataset.color!;
-          play('click');
-          draw();
-        }),
-      );
+        }`;
+      row.querySelector('.seat-token')!.addEventListener('click', () => {
+        const used = new Set(seats.slice(0, count).map((x) => x.token));
+        let k = TOKENS.indexOf(s.token);
+        do k = (k + 1) % TOKENS.length;
+        while (used.has(TOKENS[k]));
+        s.token = TOKENS[k];
+        play('click');
+        draw();
+      });
       row.querySelector<HTMLInputElement>('.seat-name')!.addEventListener('input', (e) => {
         s.name = (e.target as HTMLInputElement).value;
       });
@@ -194,8 +176,8 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
       const chosen = seats.slice(0, count);
       const players: PlayerConfig[] = chosen.map((s, i) => ({
         name: s.name.trim() || (s.ai ? AI_NAMES[i] : `Player ${i + 1}`),
-        token: s.piece,
-        color: s.color,
+        token: s.token,
+        color: COLORS[i],
         ai: s.ai,
         difficulty: s.difficulty,
       }));
@@ -217,8 +199,7 @@ export const RULES_HTML = `
     <li>🎲 <b>Roll</b> two dice and move. Doubles let you roll again, but three doubles in a row send you to <b>Lockup</b>.</li>
     <li>🏙️ Land on an unowned city, Skyport or utility to <b>buy</b> it. If you pass, it goes to <b>auction</b> and anyone can bid.</li>
     <li>💸 Landing on someone else's property means paying <b>rent</b>. Owning a whole colour set doubles the base rent.</li>
-    <li>🏗️ With a full set you can <b>build</b>: each level adds floors, and level 5 turns the plot into its district's <b>landmark</b>. Build evenly across the set.</li>
-    <li>🚩 Owned plots show the owner's fence, awning and flag; the street sign shows their name and the rent.</li>
+    <li>🏠 With a full set you can <b>build</b> houses evenly, then a hotel. Rents climb steeply.</li>
     <li>✈️ Skyport rent grows with every Skyport you own. Utility rent is a multiple of the dice roll.</li>
     <li>🔮 <b>Fortune</b> and 💼 <b>Treasury</b> cards can help or hurt you.</li>
     <li>🔒 To leave <b>Lockup</b>, pay $50, use a get-out card, or roll doubles within 3 turns.</li>
@@ -226,5 +207,5 @@ export const RULES_HTML = `
     <li>🤝 On your turn you can <b>trade</b> properties, cash and get-out cards with anyone.</li>
     <li>🍸 With the jackpot house rule, taxes and fines pile up in the <b>Sky Lounge</b>. Land there to collect them.</li>
   </ul>
-  <p class="muted">Tip: tap any plot, the map strip or a Next up card to see its rents in the info panel. Your game saves automatically.</p>
+  <p class="muted">Tip: tap any tile to see its deed. Your game saves automatically, so you can close the tab and continue later.</p>
 </div>`;
