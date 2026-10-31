@@ -1,60 +1,23 @@
 import { acceptsTrade, apply, decide, fallback, newMemory, type AiMemory } from '../game/ai';
-import { GROUPS, JAIL_FINE, TILES, houseCost, mortgageValue, unmortgageCost } from '../game/board';
+import { BUYABLE, GROUPS, JAIL_FINE, JAIL_INDEX, TILES, houseCost, mortgageValue, unmortgageCost } from '../game/board';
 import { CARD_BY_ID } from '../game/cards';
 import { Game } from '../game/engine';
 import type { GameEvent, GameState, Player, TradeOffer, TradeSide } from '../game/types';
+import { BoardView } from './board';
 import { DicePair } from './dice';
-import { confetti, countTo, el, escapeHtml, money, sleep, toast } from './fx';
-import { button, openModal, type ModalHandle } from './modal';
-import { pieceIcon, pieceKind } from './pieces';
-import type { GameScene, HandoffMode, SceneView } from './scene';
-import { RULES_HTML } from './setup';
+import { centerOf, confetti, countTo, el, escapeHtml, floatText, flyCoins, money, sleep, toast } from './fx';
+import { button, deedCard, openModal, type ModalHandle } from './modal';
+import { RULES_HTML, legacyToken } from './setup';
 import { isMuted, play, setMuted } from './sound';
-import { Board2D } from './board2d';
-import { StreetScene } from './street';
 
 type Speed = 'normal' | 'fast' | 'turbo';
-const SPEEDS: Record<Speed, { scene: number; ai: number; roll: number; card: number; step: number }> = {
-  normal: { scene: 1, ai: 650, roll: 900, card: 2200, step: 210 },
-  fast: { scene: 0.55, ai: 300, roll: 600, card: 1300, step: 130 },
-  turbo: { scene: 0.25, ai: 70, roll: 300, card: 500, step: 60 },
+const SPEEDS: Record<Speed, { step: number; ai: number; roll: number; banner: number; card: number }> = {
+  normal: { step: 180, ai: 700, roll: 1000, banner: 1100, card: 2200 },
+  fast: { step: 100, ai: 320, roll: 650, banner: 650, card: 1300 },
+  turbo: { step: 40, ai: 70, roll: 320, banner: 250, card: 500 },
 };
-const P2D6: Record<number, number> = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
+
 const SAVE_KEY = 'st-save';
-const PREFS_KEY = 'st-prefs';
-
-export type ViewMode = 'board' | 'street' | 'board3d';
-
-/** Everything the player can switch on or off. Defaults keep the screen simple. */
-interface Prefs {
-  view: ViewMode;
-  handoff: HandoffMode;
-  speed: Speed;
-  nextUp: boolean;
-  markers: boolean;
-  minimap: boolean;
-  ticker: boolean;
-}
-const DEFAULT_PREFS: Prefs = { view: 'board', handoff: 'zoom', speed: 'normal', nextUp: true, markers: true, minimap: true, ticker: true };
-
-function loadPrefs(): Prefs {
-  try {
-    const p = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
-    const legacy = localStorage.getItem('st-speed');
-    if (legacy && !localStorage.getItem(PREFS_KEY)) p.speed = legacy as Speed;
-    return p;
-  } catch {
-    return { ...DEFAULT_PREFS };
-  }
-}
-
-function savePrefs(p: Prefs) {
-  try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
-  } catch {
-    /* ignore */
-  }
-}
 
 export function loadSave(): { state: GameState; mem: AiMemory[] } | null {
   try {
@@ -62,6 +25,7 @@ export function loadSave(): { state: GameState; mem: AiMemory[] } | null {
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (data?.state?.version !== 1 || data.state.phase === 'gameover') return null;
+    data.state.players.forEach((p: { token: string }, i: number) => (p.token = legacyToken(p.token, i)));
     return data;
   } catch {
     return null;
@@ -76,35 +40,40 @@ export function clearSave() {
   }
 }
 
-const icon = (p: Player, size = 26) => pieceIcon(pieceKind(p.token), p.color, size);
-const groupColor = (i: number) => (TILES[i].group ? GROUPS[TILES[i].group!].color : TILES[i].kind === 'transit' ? '#64748b' : '#0e7490');
+const pref = (k: string, d: string) => {
+  try {
+    return localStorage.getItem(k) ?? d;
+  } catch {
+    return d;
+  }
+};
+const setPref = (k: string, v: string) => {
+  try {
+    localStorage.setItem(k, v);
+  } catch {
+    /* ignore */
+  }
+};
 
 export class GameApp {
-  private root = el('div', 'shell');
-  private sceneHost = el('div', 'scene');
-  private minimap = el('div', 'minimap');
-  private chipsEl = el('div', 'chips');
-  private roundEl = el('span', 'round');
-  private promptEl = el('div', 'prompt');
-  private actionsEl = el('div', 'actions');
-  private toolsEl = el('div', 'dock-tools');
-  private nextEl = el('div', 'next');
-  private tickerEl = el('button', 'ticker');
-  private logEl = el('div', 'log');
-  private rulesDrawer = this.drawer('Rules', RULES_HTML);
-  private settingsDrawer = this.drawer('Settings', '');
-  private logDrawer = this.drawer('Game log', '');
+  private root = el('div', 'game');
+  private board = new BoardView();
   private dice = new DicePair();
-  private scene!: GameScene;
-  private view: SceneView;
-  private prefs = loadPrefs();
+  private playersEl = el('div', 'players');
+  private logEl = el('div', 'log');
+  private controlsEl = el('div', 'controls');
+  private statusEl = el('div', 'status-line');
+  private bannerEl = el('div', 'turn-banner');
+  private roundEl = el('span', 'round-pill');
   private busy = false;
   private looping = false;
   private destroyed = false;
   private displayCash: number[] = [];
-  private auctionModal: { key: string; handle: ModalHandle; update: () => void } | null = null;
+  private speed: Speed = pref('st-speed', 'normal') as Speed;
+  private tilt = pref('st-tilt', '0') === '1';
+  private phaseModal: { key: string; handle: ModalHandle; update?: () => void } | null = null;
   private live = new Set<() => void>();
-  private onResize = () => this.scene?.resize();
+  private onResize = () => this.layout();
   private onKey = (e: KeyboardEvent) => this.handleKey(e);
 
   constructor(
@@ -114,31 +83,22 @@ export class GameApp {
     private exit: (again?: boolean) => void,
   ) {
     if (this.mem.length !== game.state.players.length) this.mem = game.state.players.map(() => newMemory());
-    this.view = {
-      state: game.state,
-      disp: game.state.players.map((p) => p.pos),
-      follow: game.state.current,
-      selected: game.state.players[game.state.current].pos,
-      moving: null,
-      showRange: true,
-      rentOf: (i) => game.rentFor(i, 7),
-      onSelect: (i) => this.openPlace(i),
-    };
-    this.displayCash = game.state.players.map((p) => p.cash);
     this.build();
-    for (const line of game.state.log.slice(-60)) this.appendLog(line);
-    const opening = game.drain().filter((e) => e.type !== 'log' && e.type !== 'turn');
+    this.displayCash = game.state.players.map((p) => p.cash);
+    this.board.setTokens(game.state);
+    this.board.renderTiles(game.state);
+    this.dice.show(game.state.dice);
+    for (const line of game.state.log.slice(-40)) this.appendLog(line);
+    const opening = game.drain().filter((e) => e.type !== 'log');
     window.addEventListener('resize', this.onResize);
     window.visualViewport?.addEventListener('resize', this.onResize);
     document.addEventListener('keydown', this.onKey);
-    requestAnimationFrame(() => {
-      void this.mountScene().then(() => {
-        this.render();
-        void this.playAll(opening).then(() => {
-          this.render();
-          void this.loop();
-        });
-      });
+    this.layout();
+    this.render();
+    // Play the opening "turn" event, then hand control to the AI if needed.
+    void this.playAll(opening).then(() => {
+      this.render();
+      void this.loop();
     });
   }
 
@@ -147,7 +107,7 @@ export class GameApp {
   }
 
   private get t() {
-    return SPEEDS[this.prefs.speed];
+    return SPEEDS[this.speed];
   }
 
   destroy() {
@@ -155,394 +115,234 @@ export class GameApp {
     window.removeEventListener('resize', this.onResize);
     window.visualViewport?.removeEventListener('resize', this.onResize);
     document.removeEventListener('keydown', this.onKey);
-    this.scene?.destroy();
-    this.auctionModal?.handle.close();
+    this.phaseModal?.handle.close();
     document.querySelectorAll('.modal-backdrop').forEach((m) => m.remove());
-    [this.rulesDrawer, this.settingsDrawer, this.logDrawer].forEach((d) => d.remove());
     this.root.remove();
-  }
-
-  /** Creates the view picked in settings (the 3D board is loaded only when chosen). */
-  private async mountScene() {
-    this.scene?.destroy();
-    let scene: GameScene;
-    if (this.prefs.view === 'board3d') {
-      try {
-        const { Board3D } = await import('./board3d');
-        scene = new Board3D(this.sceneHost, this.view);
-      } catch {
-        toast('The 3D board could not load here, so the flat board is shown instead.', 'bad');
-        this.prefs.view = 'board';
-        savePrefs(this.prefs);
-        scene = new Board2D(this.sceneHost, this.view);
-      }
-    } else if (this.prefs.view === 'street') scene = new StreetScene(this.sceneHost, this.view);
-    else scene = new Board2D(this.sceneHost, this.view);
-    scene.speed = this.t.scene;
-    this.scene = scene;
-    this.sceneHost.classList.toggle('is-3d', this.prefs.view === 'board3d');
-    scene.start();
   }
 
   // ------------------------------------------------------------------ layout
 
-  private drawer(title: string, html: string) {
-    const d = el('div', 'drawer');
-    d.setAttribute('aria-hidden', 'true');
-    d.innerHTML = `<div class="drawer-panel" role="dialog" aria-label="${title}"><h2>${title} <button class="btn tbtn icon" aria-label="Close">✕</button></h2><div class="drawer-body">${html}</div></div>`;
-    d.querySelector('h2 button')!.addEventListener('click', () => this.toggleDrawer(d, false));
-    d.addEventListener('click', (e) => {
-      if (e.target === d) this.toggleDrawer(d, false);
-    });
-    document.body.appendChild(d);
-    return d;
-  }
-
-  private toggleDrawer(d: HTMLElement, open: boolean) {
-    if (open) [this.rulesDrawer, this.settingsDrawer, this.logDrawer].forEach((x) => x !== d && this.toggleDrawer(x, false));
-    d.classList.toggle('open', open);
-    d.setAttribute('aria-hidden', String(!open));
-  }
-
   private build() {
     const top = el('header', 'topbar');
-    const rules = button('📖', 'tbtn icon', () => this.toggleDrawer(this.rulesDrawer, true));
-    rules.setAttribute('aria-label', 'Rules');
-    rules.title = 'Rules';
-    const settings = button('⚙️', 'tbtn icon', () => this.openSettings());
-    settings.setAttribute('aria-label', 'Settings');
-    settings.title = 'Settings';
-    top.append(this.chipsEl, this.roundEl, rules, settings);
-
-    this.sceneHost.appendChild(this.minimap);
-    const dock = el('div', 'dock');
-    dock.append(this.dice.root, this.promptEl, this.actionsEl, this.toolsEl);
-    this.tickerEl.addEventListener('click', () => this.toggleDrawer(this.logDrawer, true));
-    this.logDrawer.querySelector('.drawer-body')!.appendChild(this.logEl);
-    this.root.append(top, this.sceneHost, dock, this.tickerEl, this.nextEl);
-    this.host.innerHTML = '';
-    this.host.appendChild(this.root);
-    this.dice.show(this.s.dice);
-    this.applyPrefs();
-  }
-
-  private applyPrefs() {
-    this.minimap.hidden = !this.prefs.minimap;
-    this.nextEl.hidden = !this.prefs.nextUp;
-    this.tickerEl.hidden = !this.prefs.ticker;
-    if (this.scene) this.scene.speed = this.t.scene;
-  }
-
-  private openSettings() {
-    const body = this.settingsDrawer.querySelector('.drawer-body')!;
-    const seg = <T extends string>(key: keyof Prefs, label: string, opts: [T, string][], note = '') => `
-      <div class="set-row"><div class="set-label">${label}${note ? `<small>${note}</small>` : ''}</div>
-      <div class="seg">${opts.map(([v, l]) => `<button data-key="${key}" data-val="${v}" class="${this.prefs[key] === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
-    const toggle = (key: keyof Prefs, label: string, note: string) => `
-      <label class="set-row switch"><input type="checkbox" data-toggle="${key}" ${this.prefs[key] ? 'checked' : ''}/><span></span><div class="set-label">${label}<small>${note}</small></div></label>`;
-    body.innerHTML = `
-      <h4>Look</h4>
-      ${seg<ViewMode>('view', 'View', [['board', '🎲 Board'], ['street', '🚗 Street'], ['board3d', '🧊 3D']])}
-      ${seg<HandoffMode>('handoff', 'Turn change', [['zoom', 'Zoom + card'], ['card', 'Card'], ['instant', 'Instant']])}
-      ${seg<Speed>('speed', 'Speed', [['normal', 'Normal'], ['fast', 'Fast'], ['turbo', 'Turbo']])}
-      <h4>Helpers</h4>
-      ${toggle('nextUp', 'Next up strip', 'The next 12 spaces and what happens there')}
-      ${toggle('markers', 'Landing marks', 'Gold marks where you can land')}
-      ${toggle('minimap', 'Mini-map', 'All 40 spaces at a glance')}
-      ${toggle('ticker', 'Latest event', 'One line about what just happened')}
-      <h4>Sound</h4>
-      <label class="set-row switch"><input type="checkbox" data-sound ${isMuted() ? '' : 'checked'}/><span></span><div class="set-label">Sound effects</div></label>
-      <h4>Game</h4>
-      <div class="set-actions"></div>
-      <p class="muted small">Your game saves automatically.</p>`;
-    body.querySelectorAll<HTMLButtonElement>('[data-key]').forEach((b) =>
-      b.addEventListener('click', () => {
-        const key = b.dataset.key as keyof Prefs;
-        (this.prefs as unknown as Record<string, string>)[key] = b.dataset.val!;
-        savePrefs(this.prefs);
-        play('click');
-        if (key === 'view') void this.mountScene().then(() => this.render());
-        this.applyPrefs();
-        this.openSettings();
-      }),
-    );
-    body.querySelectorAll<HTMLInputElement>('[data-toggle]').forEach((inp) =>
-      inp.addEventListener('change', () => {
-        (this.prefs as unknown as Record<string, boolean>)[inp.dataset.toggle!] = inp.checked;
-        savePrefs(this.prefs);
-        this.applyPrefs();
-        this.render();
-      }),
-    );
-    body.querySelector<HTMLInputElement>('[data-sound]')!.addEventListener('change', (e) => {
-      setMuted(!(e.target as HTMLInputElement).checked);
+    top.innerHTML = `<div class="brand"><span class="logo-sky">SKYLINE</span> <span class="logo-ty">TYCOON</span></div>`;
+    top.appendChild(this.roundEl);
+    const tools = el('div', 'tools');
+    const soundBtn = el('button', 'icon-btn', isMuted() ? '🔇' : '🔊');
+    soundBtn.title = 'Sound';
+    soundBtn.addEventListener('click', () => {
+      setMuted(!isMuted());
+      soundBtn.textContent = isMuted() ? '🔇' : '🔊';
       play('click');
     });
-    body.querySelector('.set-actions')!.append(
-      button('🏁 End game (richest wins)', 'ghost', () => {
-        this.toggleDrawer(this.settingsDrawer, false);
-        void this.confirm('End the game now? The player with the highest net worth wins.', 'End game').then((ok) => {
-          if (!ok) return;
-          this.game.forfeitToWorth();
-          void this.flush().then(() => {
-            this.render();
-            this.save();
-          });
-        });
-      }),
-      button('🏠 Main menu', 'ghost', () => {
-        this.toggleDrawer(this.settingsDrawer, false);
-        this.exit();
-      }),
-    );
-    this.toggleDrawer(this.settingsDrawer, true);
+    const tiltBtn = el('button', 'icon-btn', '🧊');
+    tiltBtn.title = 'Toggle 3D view';
+    tiltBtn.addEventListener('click', () => {
+      this.tilt = !this.tilt;
+      setPref('st-tilt', this.tilt ? '1' : '0');
+      this.root.classList.toggle('tilted', this.tilt);
+      play('click');
+    });
+    const speedBtn = el('button', 'icon-btn speed-btn', this.speedLabel());
+    speedBtn.title = 'Animation speed';
+    speedBtn.addEventListener('click', () => {
+      const order: Speed[] = ['normal', 'fast', 'turbo'];
+      this.speed = order[(order.indexOf(this.speed) + 1) % 3];
+      setPref('st-speed', this.speed);
+      speedBtn.textContent = this.speedLabel();
+      toast(`Speed: <b>${this.speed}</b>`);
+      play('click');
+    });
+    const menuBtn = el('button', 'icon-btn', '☰');
+    menuBtn.title = 'Menu';
+    menuBtn.addEventListener('click', () => this.openMenu());
+    tools.append(soundBtn, tiltBtn, speedBtn, menuBtn);
+    top.appendChild(tools);
+
+    const stage = el('main', 'stage');
+    const boardWrap = el('div', 'board-wrap');
+    boardWrap.appendChild(this.board.root);
+    this.board.onTileClick = (i) => this.openTile(i);
+
+    const c = this.board.center;
+    c.innerHTML = `
+      <div class="center-glow"></div>
+      <div class="center-logo"><span class="logo-sky">SKYLINE</span><span class="logo-ty">TYCOON</span></div>
+      <div class="deck deck-fortune"><span>🔮</span><b>Fortune</b></div>
+      <div class="deck deck-treasury"><span>💼</span><b>Treasury</b></div>`;
+    const hub = el('div', 'center-hub');
+    hub.append(this.dice.root, this.statusEl, this.controlsEl);
+    c.appendChild(hub);
+
+    const side = el('aside', 'side');
+    const logWrap = el('div', 'log-wrap');
+    logWrap.innerHTML = '<div class="log-title">Game log</div>';
+    logWrap.appendChild(this.logEl);
+    side.append(this.playersEl, logWrap);
+
+    stage.append(boardWrap, side, this.bannerEl);
+    this.root.append(top, stage);
+    this.root.classList.toggle('tilted', this.tilt);
+    this.host.innerHTML = '';
+    this.host.appendChild(this.root);
+  }
+
+  private speedLabel() {
+    return this.speed === 'normal' ? '▶' : this.speed === 'fast' ? '⏩' : '⚡';
+  }
+
+  private layout() {
+    const vw = window.visualViewport?.width ?? window.innerWidth;
+    const vh = window.visualViewport?.height ?? window.innerHeight;
+    const topH = 52;
+    const landscape = vw >= vh * 1.1 && vw >= 720;
+    this.root.classList.toggle('landscape', landscape);
+    this.root.classList.toggle('portrait', !landscape);
+    let size: number;
+    if (landscape) {
+      const sideW = Math.min(360, Math.max(250, vw * 0.27));
+      this.root.style.setProperty('--side-w', `${sideW}px`);
+      size = Math.min(vh - topH - 48, vw - sideW - 64);
+    } else {
+      size = Math.min(vw - 12, (vh - topH) * 0.68, 760);
+    }
+    this.board.resize(Math.max(280, Math.floor(size)));
   }
 
   // ------------------------------------------------------------------ rendering
 
   private render() {
     if (this.destroyed) return;
-    this.view.state = this.s;
-    this.view.showRange = this.prefs.markers && this.s.phase === 'roll' && !this.busy;
-    this.renderChips();
+    const s = this.s;
+    this.roundEl.textContent = s.settings.roundLimit ? `Round ${Math.min(s.round, s.settings.roundLimit)} / ${s.settings.roundLimit}` : `Round ${s.round}`;
+    this.board.setTokens(s);
+    this.board.renderTiles(s);
+    this.renderPlayers();
     this.renderControls();
-    this.renderNext();
-    this.renderMinimap();
-    this.syncAuction();
+    this.syncPhaseModal();
     for (const fn of this.live) fn();
   }
 
-  private renderChips() {
+  private renderPlayers() {
     const s = this.s;
-    this.roundEl.textContent = s.settings.roundLimit ? `Round ${Math.min(s.round, s.settings.roundLimit)}/${s.settings.roundLimit}` : `Round ${s.round}`;
-    this.roundEl.title = `Round ${s.round}`;
-    this.chipsEl.innerHTML = s.players
+    const html = s.players
       .map((p) => {
-        const on = p.id === s.current && s.phase !== 'gameover';
-        const marks = `${p.inJail ? '<i title="In Lockup">🔒</i>' : ''}${p.jailCards.length ? '<i title="Get-out card">🎫</i>' : ''}`;
-        return `<button class="chip ${on ? 'on' : ''} ${p.bankrupt ? 'out' : ''}" data-pid="${p.id}" style="--pc:${p.color}" title="${escapeHtml(p.name)}${p.ai ? ' (AI)' : ''}">
-          <span class="av">${icon(p, 24)}</span>
-          <span class="nm">${escapeHtml(p.name)}${marks}</span>
-          <span class="cash" data-cash="${p.id}">${p.bankrupt ? 'Out' : money(this.displayCash[p.id] ?? p.cash)}</span>
-        </button>`;
+        const chips: string[] = [];
+        for (const g of Object.values(GROUPS)) {
+          const tiles = TILES.filter((t) => t.group === g.id);
+          const n = tiles.filter((t) => s.props[t.index]?.owner === p.id).length;
+          if (n) chips.push(`<i class="gchip ${n === tiles.length ? 'full' : ''}" style="--g:${g.color}" title="${escapeHtml(g.name)} ${n}/${tiles.length}">${n}</i>`);
+        }
+        const tr = BUYABLE.filter((i) => TILES[i].kind === 'transit' && s.props[i]?.owner === p.id).length;
+        const ut = BUYABLE.filter((i) => TILES[i].kind === 'utility' && s.props[i]?.owner === p.id).length;
+        if (tr) chips.push(`<i class="gchip icon" title="Skyports">✈️${tr}</i>`);
+        if (ut) chips.push(`<i class="gchip icon" title="Utilities">⚡${ut}</i>`);
+        const badges = [
+          p.ai ? `<span class="badge">AI · ${p.difficulty}</span>` : '',
+          p.inJail ? '<span class="badge warn">🔒 Lockup</span>' : '',
+          p.jailCards.length ? `<span class="badge">🎫×${p.jailCards.length}</span>` : '',
+          p.bankrupt ? '<span class="badge bad">Bankrupt</span>' : '',
+        ].join('');
+        const active = p.id === s.current && s.phase !== 'gameover';
+        return `<div class="pcard ${active ? 'active' : ''} ${p.bankrupt ? 'out' : ''}" data-pid="${p.id}" style="--pc:${p.color}">
+          <div class="avatar">${p.token}</div>
+          <div class="pinfo">
+            <div class="pname">${escapeHtml(p.name)}</div>
+            <div class="pbadges">${badges}</div>
+          </div>
+          <div class="pcash" data-cash="${p.id}">${money(this.displayCash[p.id] ?? p.cash)}</div>
+          <div class="pprops">${chips.join('') || '<span class="muted small">No properties yet</span>'}</div>
+        </div>`;
       })
       .join('');
-    this.chipsEl.querySelectorAll<HTMLElement>('.chip').forEach((c) => c.addEventListener('click', () => this.openPortfolio(Number(c.dataset.pid))));
-  }
-
-  private renderMinimap() {
-    if (this.minimap.hidden) return;
-    const s = this.s;
-    this.minimap.innerHTML =
-      TILES.map((t) => {
-        const o = s.props[t.index];
-        const style = `${t.group ? `--g:${GROUPS[t.group].color};` : ''}${o ? `--oc:${s.players[o.owner].color}` : ''}`;
-        return `<i data-i="${t.index}" class="${o ? 'own' : ''}" style="${style}" title="${escapeHtml(t.name)}"></i>`;
-      }).join('') +
-      s.players.filter((p) => !p.bankrupt).map((p) => `<span class="mm-p ${p.id === s.current ? 'cur' : ''}" style="--pc:${p.color};left:${((p.pos + 0.5) / 40) * 100}%"></span>`).join('');
-    this.minimap.querySelectorAll<HTMLElement>('i').forEach((c) =>
-      c.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.openPlace(Number(c.dataset.i));
-      }),
+    this.playersEl.innerHTML = html;
+    this.playersEl.querySelectorAll<HTMLElement>('.pcard').forEach((c) =>
+      c.addEventListener('click', () => this.openPortfolio(Number(c.dataset.pid))),
     );
-  }
-
-  /** What landing on `i` would mean for player `pid`, in a couple of words. */
-  private describe(i: number, pid: number): { text: string; cls: string } {
-    const t = TILES[i], o = this.s.props[i];
-    if (t.price) {
-      if (!o) return { text: money(t.price), cls: 'buy' };
-      if (o.owner === pid) return { text: 'Yours', cls: 'mine' };
-      if (o.mortgaged) return { text: 'Free', cls: '' };
-      return { text: `−${money(this.game.rentFor(i, 7))}`, cls: 'bad' };
-    }
-    switch (t.kind) {
-      case 'tax':
-        return { text: `−${money(t.tax!)}`, cls: 'bad' };
-      case 'gotojail':
-        return { text: 'Jail', cls: 'bad' };
-      case 'fortune':
-      case 'treasury':
-        return { text: 'Card', cls: '' };
-      case 'start':
-        return { text: `+${money(this.s.settings.salary)}`, cls: 'buy' };
-      case 'lounge':
-        return this.s.settings.jackpot && this.s.jackpot ? { text: `+${money(this.s.jackpot)}`, cls: 'buy' } : { text: 'Safe', cls: '' };
-      default:
-        return { text: 'Safe', cls: '' };
-    }
-  }
-
-  /** Compact strip of the next 12 spaces; brighter = more likely to land there. */
-  private renderNext() {
-    if (this.nextEl.hidden) return;
-    const s = this.s, p = this.game.cur;
-    let html = `<div class="next-head"><span>Next up</span><small>${p.inJail ? `${escapeHtml(p.name)} is in Lockup` : 'tap a space for details'}</small><span class="legend"><i class="buy"></i>buy <i class="bad"></i>pay <i class="mine"></i>yours</span></div><div class="next-row">`;
-    for (let d = 1; d <= 12; d++) {
-      const i = (p.pos + d) % 40, t = TILES[i], o = s.props[i], ds = this.describe(i, p.id), pr = P2D6[d] ?? 0;
-      html += `<button class="nx ${ds.cls}" data-i="${i}" style="--g:${groupColor(i)};--odds:${0.35 + (pr / 6) * 0.65}" title="${escapeHtml(t.name)} · ${pr ? Math.round((pr / 36) * 100) + '% chance' : 'can’t land'}">
-        ${o ? `<span class="own" style="--oc:${s.players[o.owner].color}"></span>` : ''}<span class="ic">${t.icon}</span><span class="v">${ds.text}</span><span class="d">${d}</span></button>`;
-    }
-    this.nextEl.innerHTML = html + '</div>';
-    this.nextEl.querySelectorAll<HTMLElement>('.nx').forEach((b) => b.addEventListener('click', () => this.openPlace(Number(b.dataset.i))));
-  }
-
-  /** Details for one space, opened on tap. Owners can build or mortgage from here. */
-  private openPlace(i: number) {
-    this.view.selected = i;
-    play('click');
-    const m = openModal({ title: '', cls: 'place-modal' });
-    const update = () => {
-      const t = TILES[i], o = this.s.props[i], s = this.s;
-      const kind = t.group ? GROUPS[t.group].name : ({ start: 'Corner', jail: 'Corner', lounge: 'Corner', gotojail: 'Corner', tax: 'Tax', fortune: 'Card', treasury: 'Card', transit: 'Skyport', utility: 'Utility' } as Record<string, string>)[t.kind];
-      let status = '';
-      if (o) {
-        const p = s.players[o.owner];
-        status = `<div class="place-status" style="--pc:${p.color}">${icon(p, 22)}<span><b>${escapeHtml(p.name)}</b> owns it${o.houses ? ` · ${o.houses === 5 ? 'Landmark' : 'Level ' + o.houses}` : ''}</span><b class="place-rent">${o.mortgaged ? 'No rent (mortgaged)' : `Rent ${t.kind === 'utility' ? '~' : ''}${money(this.game.rentFor(i, 7))}`}</b></div>`;
-      } else if (t.price) status = `<div class="place-status free"><span>For sale</span><b class="place-rent">${money(t.price)}</b></div>`;
-      const desc: Record<string, string> = {
-        start: `Collect ${money(s.settings.salary)} every time you pass.`,
-        jail: `Just visiting, unless you were sent here. Leave by paying ${money(JAIL_FINE)}, using a card, or rolling doubles.`,
-        lounge: s.settings.jackpot ? `Land here to win the jackpot: <b>${money(s.jackpot)}</b>.` : 'A free rest stop.',
-        gotojail: 'Go straight to Lockup.',
-        tax: `Pay ${money(t.tax ?? 0)}.`,
-        fortune: 'Draw a Fortune card.',
-        treasury: 'Draw a Treasury card.',
-        utility: 'Rent is 4× the dice, or 10× if the owner has both utilities.',
-        transit: 'Rent $25, doubling with each Skyport the owner has.',
-      };
-      let details = '';
-      if (t.kind === 'property') {
-        const r = t.rents!;
-        const cur = o ? (o.houses ? o.houses + 1 : this.game.hasFullSet(o.owner, t.group!) ? 1 : 0) : -1;
-        const rows: [string, number][] = [['Rent', r[0]], ['Full set', r[0] * 2], ['Level 1', r[1]], ['Level 2', r[2]], ['Level 3', r[3]], ['Level 4', r[4]], ['Landmark', r[5]]];
-        details = `<details class="place-more"><summary>Rent at each level</summary><table class="rent">${rows.map(([l, v], k) => `<tr class="${k === cur ? 'cur' : ''}"><td>${l}</td><td>${money(v)}</td></tr>`).join('')}<tr class="sep"><td>Each build</td><td>${money(houseCost(i))}</td></tr><tr><td>Mortgage value</td><td>${money(mortgageValue(i))}</td></tr></table></details>`;
-      } else if (desc[t.kind]) details = `<p class="muted">${desc[t.kind]}</p>`;
-      m.body.innerHTML = `<div class="place-head" style="--g:${groupColor(i)}"><span class="place-ic">${t.icon}</span><div><div class="place-title">${escapeHtml(t.name)}</div><div class="muted small">${kind}</div></div></div>${status}${details}`;
-      const human = this.humanActor();
-      if (o && human && o.owner === human.id && this.game.canManage(human.id)) {
-        const pid = human.id, row = el('div', 'modal-actions');
-        if (t.kind === 'property') row.append(button(`Build ${money(houseCost(i))}`, 'good', () => this.act(() => this.game.build(pid, i)), this.busy || !this.game.canBuild(pid, i)), button('Sell', 'ghost', () => this.act(() => this.game.sell(pid, i)), this.busy || !this.game.canSell(pid, i)));
-        row.append(o.mortgaged ? button(`Pay off ${money(unmortgageCost(i))}`, 'gold', () => this.act(() => this.game.unmortgage(pid, i)), this.busy || !this.game.canUnmortgage(pid, i)) : button('Mortgage', 'ghost', () => this.act(() => this.game.mortgage(pid, i)), this.busy || !this.game.canMortgage(pid, i)));
-        m.body.appendChild(row);
-        const why = t.kind === 'property' && o.houses < 5 ? this.game.buildBlocker(pid, i) : null;
-        if (why) m.body.appendChild(el('p', 'build-hint', `🔒 ${escapeHtml(why)}`));
-      }
-    };
-    update();
-    this.registerLive(m, update);
-  }
-
-  private humanActor(): Player | null {
-    if (this.s.phase === 'gameover') return null;
-    const p = this.game.player(this.game.actor());
-    return p.ai ? null : p;
-  }
-
-  private setActions(...btns: HTMLElement[]) {
-    this.actionsEl.innerHTML = '';
-    this.actionsEl.append(...btns);
-  }
-
-  private setTools(pid: number | null) {
-    this.toolsEl.innerHTML = '';
-    if (pid === null) return;
-    const manage = button('🏗️', 'tbtn icon', () => this.openManage(pid));
-    manage.title = 'Build & mortgage';
-    manage.setAttribute('aria-label', 'Build and mortgage');
-    const trade = button('🤝', 'tbtn icon', () => this.openTrade(pid));
-    trade.title = 'Trade';
-    trade.setAttribute('aria-label', 'Trade');
-    this.toolsEl.append(manage, trade);
-  }
-
-  /** One short instruction and the buttons for it. */
-  private say(title: string, sub = '') {
-    this.promptEl.innerHTML = `<b>${title}</b>${sub ? `<small>${sub}</small>` : ''}`;
-  }
-
-  private renderControls() {
-    const s = this.s, cur = this.game.cur;
-    this.setTools(null);
-    if (s.phase === 'gameover') {
-      const w = s.winner !== null ? this.game.player(s.winner) : null;
-      this.say(w ? `🏆 ${escapeHtml(w.name)} wins!` : 'Game over');
-      this.setActions(button('New game', 'primary', () => this.exit()));
-      return;
-    }
-    const actor = this.game.player(this.game.actor());
-    if (actor.ai || this.busy) {
-      this.promptEl.innerHTML = actor.ai ? `<span class="dot-pulse" style="--pc:${actor.color}"></span> <b>${escapeHtml(actor.name)}</b> is playing…` : '';
-      this.setActions();
-      return;
-    }
-    const you = this.s.players.filter((p) => !p.ai).length > 1 ? escapeHtml(actor.name) + ', ' : '';
-    switch (s.phase) {
-      case 'roll':
-        if (cur.inJail) {
-          this.say(`🔒 ${you}you're in Lockup`, `Roll doubles to get out (try ${cur.jailTurns + 1} of 3), or pay ${money(JAIL_FINE)}.`);
-          const btns = [button('🎲 Roll', 'primary', () => this.act(() => this.game.roll())), button(`Pay ${money(JAIL_FINE)}`, 'gold', () => this.act(() => this.game.payJailFine()), cur.cash < JAIL_FINE)];
-          if (cur.jailCards.length) btns.push(button('🎫 Use card', 'gold', () => this.act(() => this.game.useJailCard())));
-          this.setActions(...btns);
-        } else {
-          this.say(s.doublesCount ? `🎉 Doubles! ${you}roll again` : `${you}your turn`);
-          this.setActions(button(s.doublesCount ? '🎲 Roll again' : '🎲 Roll', 'primary pulse', () => this.act(() => this.game.roll())));
-        }
-        this.setTools(actor.id);
-        break;
-      case 'end':
-        this.say(`${you}done?`, 'Build or trade first if you like.');
-        this.setActions(button('End turn ➜', 'primary', () => this.act(() => this.game.endTurn())));
-        this.setTools(actor.id);
-        break;
-      case 'buy': {
-        const t = TILES[cur.pos], short = cur.cash < t.price!;
-        const rent = t.kind === 'property' ? `Rent ${money(t.rents![0])}` : t.kind === 'transit' ? 'Rent from $25' : 'Rent 4× dice';
-        this.say(`Buy ${t.icon} ${escapeHtml(t.name)}?`, short ? `You need ${money(t.price! - cur.cash)} more. Mortgage something or let it go.` : `${rent} · you'd keep ${money(cur.cash - t.price!)}`);
-        const btns = [button(`Buy ${money(t.price!)}`, 'primary', () => this.act(() => this.game.buy()), short), button(s.settings.auctions ? 'Auction' : 'Skip', 'ghost', () => this.act(() => this.game.decline()))];
-        const info = button('ⓘ', 'tbtn icon', () => this.openPlace(cur.pos));
-        info.setAttribute('aria-label', 'Details');
-        this.setActions(...btns, info);
-        if (short) this.setTools(actor.id);
-        break;
-      }
-      case 'auction':
-        this.say('🔨 Auction');
-        this.setActions();
-        break;
-      case 'debt': {
-        const d = s.debts[0];
-        this.say(`⚠️ ${you}you owe ${money(d.amount)}`, `You have ${money(actor.cash)}. Sell buildings or mortgage to pay.`);
-        this.setActions(
-          button('Raise cash', 'primary', () => this.openManage(actor.id)),
-          button('Give up', 'danger', () => {
-            void this.confirm(`Declare bankruptcy? ${escapeHtml(actor.name)} is out of the game.`, 'Go bankrupt').then((ok) => {
-              if (ok) void this.act(() => this.game.declareBankruptcy());
-            });
-          }),
-        );
-        break;
-      }
-    }
-  }
-
-  private appendLog(text: string) {
-    const line = el('div', 'log-line', escapeHtml(text));
-    this.logEl.prepend(line);
-    while (this.logEl.childElementCount > 120) this.logEl.lastElementChild!.remove();
-    this.tickerEl.innerHTML = `<span>${escapeHtml(text)}</span><small>Log</small>`;
   }
 
   private syncCash() {
     this.s.players.forEach((p) => {
       const from = this.displayCash[p.id];
       if (from !== p.cash) {
-        const node = this.chipsEl.querySelector<HTMLElement>(`[data-cash="${p.id}"]`);
-        if (node && !p.bankrupt) countTo(node, from, p.cash, 500);
+        const node = this.playersEl.querySelector<HTMLElement>(`[data-cash="${p.id}"]`);
+        if (node) countTo(node, from, p.cash, 500);
         this.displayCash[p.id] = p.cash;
       }
     });
+  }
+
+  private humanActor(): Player | null {
+    const s = this.s;
+    if (s.phase === 'gameover') return null;
+    const p = this.game.player(this.game.actor());
+    return p.ai ? null : p;
+  }
+
+  private renderControls() {
+    const s = this.s;
+    const c = this.controlsEl;
+    c.innerHTML = '';
+    const cur = this.game.cur;
+    if (s.phase === 'gameover') {
+      const w = s.winner !== null ? this.game.player(s.winner) : null;
+      this.statusEl.innerHTML = w ? `🏆 <b>${escapeHtml(w.name)}</b> wins!` : 'Game over';
+      c.appendChild(button('New game', 'primary', () => this.exit()));
+      return;
+    }
+    const actor = this.game.player(this.game.actor());
+    if (actor.ai || this.busy) {
+      this.statusEl.innerHTML = actor.ai
+        ? `<span class="dot-pulse" style="--pc:${actor.color}"></span> <b>${escapeHtml(actor.name)}</b> is playing…`
+        : `<b>${escapeHtml(cur.name)}</b>'s turn`;
+      if (!actor.ai) {
+        const b = button('…', 'primary wide', () => {}, true);
+        c.appendChild(b);
+      }
+      return;
+    }
+    const name = escapeHtml(actor.name);
+    const row = el('div', 'ctrl-row');
+    const row2 = el('div', 'ctrl-row small');
+    switch (s.phase) {
+      case 'roll':
+        if (cur.inJail) {
+          this.statusEl.innerHTML = `🔒 <b>${name}</b> is in Lockup (try ${cur.jailTurns + 1}/3)`;
+          row.appendChild(button('🎲 Roll doubles', 'primary', () => this.act(() => this.game.roll())));
+          row.appendChild(button(`Pay ${money(JAIL_FINE)}`, 'gold', () => this.act(() => this.game.payJailFine()), cur.cash < JAIL_FINE));
+          if (cur.jailCards.length) row.appendChild(button('🎫 Use card', 'gold', () => this.act(() => this.game.useJailCard())));
+        } else {
+          this.statusEl.innerHTML = s.doublesCount ? `🎉 Doubles! <b>${name}</b>, roll again` : `<b>${name}</b>, your turn`;
+          row.appendChild(button(s.doublesCount ? '🎲 Roll again' : '🎲 Roll dice', 'primary wide pulse', () => this.act(() => this.game.roll())));
+        }
+        break;
+      case 'end':
+        this.statusEl.innerHTML = `<b>${name}</b>, anything else?`;
+        row.appendChild(button('End turn ➜', 'primary wide', () => this.act(() => this.game.endTurn())));
+        break;
+      case 'buy':
+        this.statusEl.innerHTML = `<b>${name}</b> is deciding…`;
+        row.appendChild(button('View offer', 'primary', () => this.syncPhaseModal(true)));
+        break;
+      case 'auction':
+        this.statusEl.innerHTML = `🔨 Auction: <b>${name}</b> to bid`;
+        break;
+      case 'debt':
+        this.statusEl.innerHTML = `⚠️ <b>${name}</b> owes ${money(this.game.debtTotal(actor.id))}`;
+        row.appendChild(button('Raise cash', 'gold', () => this.openManage(actor.id)));
+        break;
+    }
+    if (s.phase === 'roll' || s.phase === 'end') {
+      row2.appendChild(button('🏗️ Manage', 'ghost', () => this.openManage(actor.id)));
+      row2.appendChild(button('🤝 Trade', 'ghost', () => this.openTrade(actor.id)));
+    }
+    c.append(row);
+    if (row2.childElementCount) c.append(row2);
+  }
+
+  private appendLog(text: string) {
+    const line = el('div', 'log-line', escapeHtml(text));
+    this.logEl.prepend(line);
+    while (this.logEl.childElementCount > 80) this.logEl.lastElementChild!.remove();
   }
 
   // ------------------------------------------------------------------ actions
@@ -589,15 +389,17 @@ export class GameApp {
     try {
       while (this.s.phase !== 'gameover' && !this.destroyed) {
         const pid = this.game.actor();
-        if (!this.game.player(pid).ai) break;
+        const p = this.game.player(pid);
+        if (!p.ai) break;
         this.busy = true;
         this.renderControls();
         await sleep(this.t.ai);
         if (this.destroyed) return;
         const action = decide(this.game, pid, this.mem[pid]);
         let ok: boolean;
-        if (action.type === 'trade') ok = await this.aiTrade(action.offer);
-        else {
+        if (action.type === 'trade') {
+          ok = await this.aiTrade(action.offer);
+        } else {
           ok = apply(this.game, pid, action);
           if (!ok) ok = apply(this.game, pid, fallback(this.game, pid));
         }
@@ -624,10 +426,14 @@ export class GameApp {
   }
 
   private async aiTrade(offer: TradeOffer): Promise<boolean> {
-    const to = this.game.player(offer.to), from = this.game.player(offer.from);
-    const accepted = to.ai ? acceptsTrade(this.game, offer) : await this.askTrade(offer, `${escapeHtml(from.name)} wants to trade with ${escapeHtml(to.name)}`);
-    if (accepted) this.game.executeTrade(offer);
-    else {
+    const to = this.game.player(offer.to);
+    const from = this.game.player(offer.from);
+    let accepted: boolean;
+    if (to.ai) accepted = acceptsTrade(this.game, offer);
+    else accepted = await this.askTrade(offer, `${escapeHtml(from.name)} wants to trade with ${escapeHtml(to.name)}`);
+    if (accepted) {
+      this.game.executeTrade(offer);
+    } else {
       this.game.log(`${to.name} turned down ${from.name}'s trade offer.`);
       if (to.ai) toast(`🤝 ${escapeHtml(to.name)} declined ${escapeHtml(from.name)}'s offer`);
     }
@@ -635,11 +441,10 @@ export class GameApp {
   }
 
   private handleKey(e: KeyboardEvent) {
-    const drawers = [this.rulesDrawer, this.settingsDrawer, this.logDrawer];
-    if (e.key === 'Escape') drawers.forEach((d) => this.toggleDrawer(d, false));
-    if (document.querySelector('.modal-backdrop.open') || drawers.some((d) => d.classList.contains('open')) || (e.target as HTMLElement)?.tagName === 'INPUT') return;
+    if (document.querySelector('.modal-backdrop.open') || (e.target as HTMLElement)?.tagName === 'INPUT') return;
     if (e.key === ' ' || e.key === 'Enter') {
-      if (!this.humanActor() || this.busy) return;
+      const human = this.humanActor();
+      if (!human || this.busy) return;
       if (this.s.phase === 'roll') {
         e.preventDefault();
         void this.act(() => this.game.roll());
@@ -652,52 +457,50 @@ export class GameApp {
 
   // ------------------------------------------------------------------ event playback
 
-  /** Page coordinates of a point in the scene, for page-level effects. */
-  private pagePoint(p: { x: number; y: number }) {
-    const r = this.sceneHost.getBoundingClientRect();
-    return { x: r.left + p.x, y: r.top + p.y };
+  private tokenPoint(pid: number) {
+    const t = this.board.tokenElement(pid);
+    return t ? centerOf(t.querySelector('.token-body') ?? t) : centerOf(this.board.root);
   }
 
-  private floatAtPlayer(pid: number, text: string, color: string) {
-    const p = this.scene.playerPoint(pid);
-    this.scene.overlay('float', escapeHtml(text), p.x, p.y - 60, 1600, `color:${color}`);
+  private panelPoint(pid: number) {
+    const n = this.playersEl.querySelector(`[data-cash="${pid}"]`);
+    return n ? centerOf(n) : this.tokenPoint(pid);
   }
 
   private async playEvent(e: GameEvent) {
-    const fast = this.prefs.speed === 'turbo';
+    const s = this.s;
     switch (e.type) {
       case 'log':
         this.appendLog(e.text);
         break;
       case 'turn': {
         const p = this.game.player(e.player);
-        this.renderChips();
-        this.renderControls();
-        this.renderNext();
-        this.view.showRange = false;
-        const card = el('div', 'turn-card', `<div class="tc" style="--pc:${p.color}">${icon(p, 44)}<span>${escapeHtml(p.name)}'s turn</span></div>`);
+        this.renderPlayers();
+        this.board.setTokens(s);
+        this.bannerEl.innerHTML = `<div class="banner-inner" style="--pc:${p.color}"><span class="banner-token">${p.token}</span><span>${escapeHtml(p.name)}'s turn</span></div>`;
+        this.bannerEl.classList.remove('show');
+        void this.bannerEl.offsetWidth;
+        this.bannerEl.style.setProperty('--banner-ms', `${this.t.banner}ms`);
+        this.bannerEl.classList.add('show');
         play('turn');
-        await this.scene.handoff(e.player, fast ? null : card, fast ? 'instant' : this.prefs.handoff);
-        this.view.selected = p.pos;
+        await sleep(p.ai ? this.t.banner * 0.6 : 250);
         break;
       }
       case 'roll':
         play('dice');
         await this.dice.roll(e.dice, this.t.roll);
-        if (e.doubles) this.floatAtPlayer(e.player, 'DOUBLES!', '#ffc23d');
+        if (e.doubles) floatText(centerOf(this.dice.root).x, centerOf(this.dice.root).y - 30, 'DOUBLES!', 'big gold');
         break;
       case 'move': {
         const target = e.path[e.path.length - 1];
-        play('step');
-        if (e.jump) await this.scene.jump(e.player, target);
-        else await this.scene.walk(e.player, e.path, this.t.step);
-        this.view.selected = target;
-        this.renderMinimap();
+        await this.board.moveToken(e.player, e.path, e.path.length > 14 ? this.t.step * 0.6 : this.t.step, e.jump, !!e.jump && target === JAIL_INDEX);
+        this.board.highlight(target);
         break;
       }
       case 'money': {
-        this.floatAtPlayer(e.player, `${e.delta > 0 ? '+' : '−'}${money(Math.abs(e.delta))}`, e.delta > 0 ? '#3ddc84' : '#ff5a6e');
-        const node = this.chipsEl.querySelector<HTMLElement>(`[data-cash="${e.player}"]`);
+        const pt = this.panelPoint(e.player);
+        floatText(pt.x, pt.y - 10, `${e.delta > 0 ? '+' : '−'}${money(Math.abs(e.delta))}`, e.delta > 0 ? 'gain' : 'loss');
+        const node = this.playersEl.querySelector<HTMLElement>(`[data-cash="${e.player}"]`);
         const from = this.displayCash[e.player];
         this.displayCash[e.player] = from + e.delta;
         if (node) {
@@ -709,21 +512,20 @@ export class GameApp {
         if (e.delta > 0) play('coin');
         break;
       }
-      case 'pay':
-        if (fast) break;
+      case 'pay': {
+        if (this.speed === 'turbo') break;
+        const from = this.tokenPoint(e.from);
+        const to = e.to !== null ? this.tokenPoint(e.to) : centerOf(this.board.center);
         if (e.to === null) play('pay');
-        else play('coin');
-        await this.scene.coins(e.from, e.to);
+        await flyCoins(from, to, e.to !== null ? 7 : 4, e.to !== null ? 650 : 450);
         break;
+      }
       case 'buy': {
-        const p = this.game.player(e.player);
+        this.board.renderTiles(s, e.tile);
         play('buy');
-        const pt = this.scene.pointFor(e.tile);
-        this.scene.overlay('stamp', `SOLD<small>to ${escapeHtml(p.name)}</small>`, pt.x, pt.y, 1700, `--sc:${p.color}`);
-        this.scene.raiseFlag(e.tile);
-        this.scene.grow(e.tile);
-        this.renderMinimap();
-        await sleep(fast ? 50 : 500);
+        const pt = centerOf(this.board.tileElement(e.tile));
+        floatText(pt.x, pt.y, 'SOLD!', 'stamp');
+        await sleep(this.speed === 'turbo' ? 50 : 350);
         break;
       }
       case 'card':
@@ -731,17 +533,21 @@ export class GameApp {
         break;
       case 'jail': {
         play('jail');
-        const pt = this.scene.playerPoint(e.player);
-        this.scene.overlay('stamp', 'BUSTED!<small>off to Lockup</small>', pt.x, pt.y - 80, 1500, '--sc:#ef4444');
-        await sleep(fast ? 100 : 700);
+        const pt = centerOf(this.board.root);
+        floatText(pt.x, pt.y, '🚨 BUSTED!', 'big red');
+        await sleep(this.speed === 'turbo' ? 100 : 600);
         break;
       }
+      case 'leaveJail':
+        this.board.setTokens(s);
+        break;
       case 'build':
-        this.scene.grow(e.tile);
+        this.board.renderTiles(s, e.tile, true);
         play('build');
-        await sleep(fast ? 30 : 300);
+        await sleep(this.speed === 'turbo' ? 30 : 220);
         break;
       case 'mortgage':
+        this.board.renderTiles(s, e.tile);
         play(e.mortgaged ? 'coin' : 'pay');
         break;
       case 'auctionStart':
@@ -757,34 +563,43 @@ export class GameApp {
         }
         break;
       }
-      case 'auctionEnd':
-        if (e.winner !== null) toast(`🔨 <b>${escapeHtml(this.game.player(e.winner).name)}</b> won ${escapeHtml(TILES[e.tile].name)} for ${money(e.amount)}`, 'good');
-        else toast(`🔨 No bids for ${escapeHtml(TILES[e.tile].name)}`);
+      case 'auctionEnd': {
+        if (e.winner !== null) {
+          const w = this.game.player(e.winner);
+          toast(`🔨 <b>${escapeHtml(w.name)}</b> won ${escapeHtml(TILES[e.tile].name)} for ${money(e.amount)}`, 'good');
+        } else toast(`🔨 No bids for ${escapeHtml(TILES[e.tile].name)}`);
         break;
+      }
       case 'fullSet': {
-        const p = this.game.player(e.player), g = GROUPS[e.group];
-        const pt = this.pagePoint(this.scene.playerPoint(e.player));
+        const p = this.game.player(e.player);
+        const g = GROUPS[e.group];
+        const pt = this.tokenPoint(e.player);
         confetti(pt.x, pt.y, 90, [g.color, '#ffffff', p.color]);
         play('jackpot');
         toast(`⭐ <b>${escapeHtml(p.name)}</b> owns all of <b style="color:${g.color}">${escapeHtml(g.name)}</b>!`, 'good', 3200);
-        await sleep(fast ? 50 : 500);
+        await sleep(this.speed === 'turbo' ? 50 : 500);
         break;
       }
       case 'jackpot': {
-        const pt = this.pagePoint(this.scene.playerPoint(e.player));
+        const pt = this.tokenPoint(e.player);
         confetti(pt.x, pt.y, 140);
         play('jackpot');
-        this.floatAtPlayer(e.player, `JACKPOT ${money(e.amount)}!`, '#ffc23d');
+        floatText(pt.x, pt.y - 30, `JACKPOT ${money(e.amount)}!`, 'big gold');
         await sleep(600);
         break;
       }
-      case 'bankrupt':
+      case 'bankrupt': {
+        const p = this.game.player(e.player);
         play('bankrupt');
-        toast(`💥 <b>${escapeHtml(this.game.player(e.player).name)}</b> went bankrupt!`, 'bad', 3500);
-        await sleep(fast ? 100 : 900);
+        toast(`💥 <b>${escapeHtml(p.name)}</b> went bankrupt!`, 'bad', 3500);
+        this.board.setTokens(s);
+        this.board.renderTiles(s);
+        await sleep(this.speed === 'turbo' ? 100 : 900);
         break;
+      }
       case 'trade':
         play('buy');
+        this.board.renderTiles(s);
         toast(`🤝 ${escapeHtml(this.game.player(e.offer.from).name)} and ${escapeHtml(this.game.player(e.offer.to).name)} made a trade`, 'good');
         break;
       case 'gameover':
@@ -795,15 +610,15 @@ export class GameApp {
     }
   }
 
-  /** Fortune/Treasury card flips over the street. */
   private async showCard(id: string, pid: number) {
-    const card = CARD_BY_ID[id], p = this.game.player(pid);
+    const card = CARD_BY_ID[id];
+    const p = this.game.player(pid);
     play('card');
-    if (this.prefs.speed === 'turbo' && p.ai) {
+    if (this.speed === 'turbo' && p.ai) {
       toast(`${card.deck === 'fortune' ? '🔮' : '💼'} <b>${escapeHtml(p.name)}</b>: ${escapeHtml(card.title)}`);
       return;
     }
-    const wrap = el('div', 'card-pop');
+    const m = openModal({ cls: 'card-modal', dismissable: false });
     const flip = el('div', `game-card ${card.deck}`);
     flip.innerHTML = `
       <div class="card-face card-back"><div class="card-back-icon">${card.deck === 'fortune' ? '🔮' : '💼'}</div><div>${card.deck === 'fortune' ? 'FORTUNE' : 'TREASURY'}</div></div>
@@ -811,36 +626,70 @@ export class GameApp {
         <div class="card-kind">${card.deck === 'fortune' ? '🔮 Fortune' : '💼 Treasury'}</div>
         <div class="card-title">${escapeHtml(card.title)}</div>
         <div class="card-text">${escapeHtml(card.text)}</div>
-        <div class="card-who" style="--pc:${p.color}">${icon(p, 18)} ${escapeHtml(p.name)}</div>
+        <div class="card-who" style="--pc:${p.color}">${p.token} ${escapeHtml(p.name)}</div>
       </div>`;
-    wrap.appendChild(flip);
-    this.sceneHost.appendChild(wrap);
-    requestAnimationFrame(() => setTimeout(() => flip.classList.add('flipped'), 60));
+    m.body.appendChild(flip);
+    requestAnimationFrame(() => setTimeout(() => flip.classList.add('flipped'), 80));
     if (!p.ai) {
-      await new Promise<void>((res) => {
-        const ok = button('OK', 'primary card-ok', () => res());
-        wrap.appendChild(ok);
-        ok.focus();
-        setTimeout(res, 15000);
-      });
-    } else await sleep(this.t.card);
-    wrap.classList.add('out');
-    await sleep(200);
-    wrap.remove();
+      const ok = button('OK', 'primary', () => m.close());
+      ok.classList.add('card-ok');
+      m.body.appendChild(ok);
+      await Promise.race([m.closed, sleep(15000)]);
+    } else {
+      await sleep(this.t.card);
+    }
+    m.close();
+    await sleep(150);
   }
 
-  // ------------------------------------------------------------------ auction (the one phase that needs a dialog)
+  // ------------------------------------------------------------------ phase modals
 
-  private syncAuction() {
+  /** Keeps the buy / auction / debt dialog in sync with the engine phase. */
+  private syncPhaseModal(force = false) {
     const s = this.s;
-    const key = s.phase === 'auction' && s.auction ? `auction:${s.turnCount}:${s.auction.tile}` : null;
-    if (this.auctionModal && this.auctionModal.key !== key) {
-      this.auctionModal.handle.close();
-      this.auctionModal = null;
+    const actor = this.game.player(this.game.actor());
+    let key: string | null = null;
+    if (s.phase === 'buy' && !actor.ai) key = `buy:${s.turnCount}:${actor.pos}`;
+    else if (s.phase === 'auction' && s.auction) key = `auction:${s.turnCount}:${s.auction.tile}`;
+    else if (s.phase === 'debt' && !actor.ai) key = `debt:${actor.id}:${s.debts[0]?.amount}:${s.debts[0]?.reason}`;
+    if (this.busy && !force && key?.startsWith('buy')) key = null;
+    if (this.phaseModal && this.phaseModal.key !== key) {
+      this.phaseModal.handle.close();
+      this.phaseModal = null;
     }
     if (!key) return;
-    if (this.auctionModal) return this.auctionModal.update();
-    this.openAuction(key);
+    if (this.phaseModal) {
+      if (force && !document.body.contains(this.phaseModal.handle.root)) this.phaseModal = null;
+      else {
+        this.phaseModal.update?.();
+        return;
+      }
+    }
+    if (key.startsWith('buy')) this.openBuy(key);
+    else if (key.startsWith('auction')) this.openAuction(key);
+    else if (key.startsWith('debt')) this.openDebt(key);
+  }
+
+  private openBuy(key: string) {
+    const p = this.game.cur;
+    const tile = TILES[p.pos];
+    const m = openModal({ title: 'For sale', cls: 'buy-modal', dismissable: false });
+    const update = () => {
+      m.body.innerHTML = '';
+      m.body.appendChild(deedCard(this.s, p.pos));
+      const short = p.cash < tile.price!;
+      const info = el('div', 'buy-info', short
+        ? `You have ${money(p.cash)}. Mortgage or sell to raise ${money(tile.price! - p.cash)} more, or let it go to auction.`
+        : `You have <b>${money(p.cash)}</b>. After buying: <b>${money(p.cash - tile.price!)}</b>`);
+      m.body.appendChild(info);
+      const row = el('div', 'modal-actions');
+      row.appendChild(button(`Buy for ${money(tile.price!)}`, 'primary', () => this.act(() => this.game.buy()), short));
+      row.appendChild(button(this.s.settings.auctions ? '🔨 Auction' : 'Pass', 'ghost', () => this.act(() => this.game.decline())));
+      if (short) row.appendChild(button('🏗️ Manage', 'gold', () => this.openManage(p.id)));
+      m.body.appendChild(row);
+    };
+    update();
+    this.phaseModal = { key, handle: m, update };
   }
 
   private openAuction(key: string) {
@@ -852,48 +701,77 @@ export class GameApp {
       const actor = this.game.player(a.active[a.turn]);
       const leader = a.bidder !== null ? this.game.player(a.bidder) : null;
       const min = this.game.minBid();
-      const t = TILES[a.tile];
       if (draft < min) draft = min;
       if (draft > actor.cash) draft = Math.max(min, actor.cash);
-      m.body.innerHTML = `
-        <div class="auction-lot" style="--g:${groupColor(a.tile)}"><span class="ic">${t.icon}</span><div><b>${escapeHtml(t.name)}</b><small>${t.group ? escapeHtml(GROUPS[t.group].name) + ' · ' : ''}list price ${money(t.price!)}</small></div></div>
+      m.body.innerHTML = '';
+      const wrap = el('div', 'auction-grid');
+      wrap.appendChild(deedCard(this.s, a.tile));
+      const side = el('div', 'auction-side');
+      side.innerHTML = `
         <div class="auction-bid">${a.bid ? money(a.bid) : 'No bids yet'}</div>
-        <div class="auction-leader">${leader ? `Leading: <span class="chip-inline" style="--pc:${leader.color}">${icon(leader, 18)} ${escapeHtml(leader.name)}</span>` : `Opening bid ${money(min)}`}</div>
+        <div class="auction-leader">${leader ? `Leading: <span class="chip" style="--pc:${leader.color}">${leader.token} ${escapeHtml(leader.name)}</span>` : `Opening bid ${money(min)}`}</div>
         <div class="bidders">${this.s.players
           .filter((p) => !p.bankrupt)
           .map((p) => {
             const st = a.active.includes(p.id) ? (p.id === actor.id ? 'turn' : 'in') : 'out';
-            return `<span class="bidder ${st}" style="--pc:${p.color}">${icon(p, 16)} ${escapeHtml(p.name)} <small>${st === 'out' ? 'out' : money(p.cash)}</small></span>`;
+            return `<span class="bidder ${st}" style="--pc:${p.color}">${p.token} ${escapeHtml(p.name)} <small>${st === 'out' ? 'out' : money(p.cash)}</small></span>`;
           })
           .join('')}</div>`;
-      if (actor.ai) m.body.appendChild(el('div', 'thinking', `<span class="dot-pulse" style="--pc:${actor.color}"></span> ${escapeHtml(actor.name)} is thinking…`));
-      else if (!this.busy) {
-        m.body.appendChild(el('div', 'bid-turn', `<b>${escapeHtml(actor.name)}</b>, your bid:`));
+      if (actor.ai) {
+        side.appendChild(el('div', 'thinking', `<span class="dot-pulse" style="--pc:${actor.color}"></span> ${escapeHtml(actor.name)} is thinking…`));
+      } else if (!this.busy) {
+        const canBid = actor.cash >= min;
+        side.appendChild(el('div', 'bid-turn', `<b>${escapeHtml(actor.name)}</b>, your bid:`));
         const stepper = el('div', 'stepper');
+        const minus = button('−10', 'ghost small', () => {
+          draft = Math.max(min, draft - 10);
+          update();
+        });
         const val = el('div', 'stepper-val', money(draft));
         const plus = (n: number) =>
           button(`+${n}`, 'ghost small', () => {
             draft = Math.min(actor.cash, draft + n);
             update();
           });
-        stepper.append(
-          button('−10', 'ghost small', () => {
-            draft = Math.max(min, draft - 10);
-            update();
-          }),
-          val,
-          plus(10),
-          plus(50),
-          plus(100),
-        );
-        m.body.appendChild(stepper);
+        stepper.append(minus, val, plus(10), plus(50), plus(100));
+        side.appendChild(stepper);
         const row = el('div', 'modal-actions');
-        row.append(button(`Bid ${money(draft)}`, 'primary', () => this.act(() => this.game.bid(actor.id, draft)), actor.cash < min), button('Drop out', 'ghost', () => this.act(() => this.game.passBid(actor.id))));
-        m.body.appendChild(row);
+        row.appendChild(button(`Bid ${money(draft)}`, 'primary', () => this.act(() => this.game.bid(actor.id, draft)), !canBid));
+        row.appendChild(button('Drop out', 'ghost', () => this.act(() => this.game.passBid(actor.id))));
+        side.appendChild(row);
       }
+      wrap.appendChild(side);
+      m.body.appendChild(wrap);
     };
     update();
-    this.auctionModal = { key, handle: m, update };
+    this.phaseModal = { key, handle: m, update };
+  }
+
+  private openDebt(key: string) {
+    const m = openModal({ title: '⚠️ Not enough cash', cls: 'debt-modal', dismissable: false });
+    const update = () => {
+      const d = this.s.debts[0];
+      if (!d) return;
+      const p = this.game.player(d.from);
+      const to = d.to !== null ? this.game.player(d.to).name : 'the bank';
+      const canRaise = this.game.liquidity(p.id) >= this.game.debtTotal(p.id);
+      m.body.innerHTML = `
+        <p><b>${escapeHtml(p.name)}</b> owes <b>${money(d.amount)}</b> to ${escapeHtml(to)} (${escapeHtml(d.reason)}) but has only <b>${money(p.cash)}</b>.</p>
+        <p class="muted">Sell buildings or mortgage properties to raise ${money(d.amount - p.cash)}. The debt is paid automatically once you have the cash.</p>
+        ${canRaise ? '' : '<p class="warn-text">Even selling everything won\'t cover this.</p>'}`;
+      const row = el('div', 'modal-actions');
+      row.appendChild(button('🏗️ Raise cash', 'primary', () => this.openManage(p.id)));
+      row.appendChild(
+        button('💥 Declare bankruptcy', 'danger', () => {
+          this.confirm(`Declare bankruptcy? ${escapeHtml(p.name)} is out of the game.`, 'Go bankrupt').then((ok) => {
+            if (ok) void this.act(() => this.game.declareBankruptcy());
+          });
+        }),
+      );
+      m.body.appendChild(row);
+    };
+    update();
+    this.phaseModal = { key, handle: m, update };
   }
 
   private confirm(text: string, yes = 'Yes'): Promise<boolean> {
@@ -902,14 +780,14 @@ export class GameApp {
       m.body.innerHTML = `<p>${text}</p>`;
       const row = el('div', 'modal-actions');
       let answered = false;
-      row.append(
+      row.appendChild(
         button(yes, 'danger', () => {
           answered = true;
           resolve(true);
           m.close();
         }),
-        button('Cancel', 'ghost', () => m.close()),
       );
+      row.appendChild(button('Cancel', 'ghost', () => m.close()));
       m.body.appendChild(row);
       void m.closed.then(() => {
         if (!answered) resolve(false);
@@ -917,7 +795,7 @@ export class GameApp {
     });
   }
 
-  // ------------------------------------------------------------------ manage / portfolio
+  // ------------------------------------------------------------------ manage / tiles
 
   private registerLive(m: ModalHandle, fn: () => void) {
     this.live.add(fn);
@@ -931,9 +809,10 @@ export class GameApp {
       const owned = this.game.ownedBy(pid);
       const can = this.game.canManage(pid) && !this.busy;
       m.body.innerHTML = '';
-      m.body.appendChild(el('div', 'manage-head', `Cash <b>${money(p.cash)}</b>${this.s.phase === 'debt' ? ` · Owes <b class="warn-text">${money(this.game.debtTotal(pid))}</b>` : ''}`));
+      const head = el('div', 'manage-head', `Cash <b>${money(p.cash)}</b>${this.s.phase === 'debt' ? ` · Owes <b class="warn-text">${money(this.game.debtTotal(pid))}</b>` : ''}`);
+      m.body.appendChild(head);
       if (!owned.length) {
-        m.body.appendChild(el('p', 'muted', 'No properties yet. Land on a FOR SALE plot to buy one.'));
+        m.body.appendChild(el('p', 'muted', 'No properties yet. Land on a city to buy it!'));
         return;
       }
       const list = el('div', 'manage-list');
@@ -947,7 +826,7 @@ export class GameApp {
         const g = GROUPS[key];
         const sec = el('div', 'manage-group');
         sec.style.setProperty('--g', g?.color ?? (key === 'transit' ? '#64748b' : '#0e7490'));
-        const full = !!g && this.game.hasFullSet(pid, key);
+        const full = g && this.game.hasFullSet(pid, key);
         const total = g ? TILES.filter((x) => x.group === key).length : 0;
         const progress = g ? (full ? '<span class="tag good">Full set · can build</span>' : `<span class="tag">${tiles.length}/${total} owned</span>`) : '';
         sec.innerHTML = `<div class="mg-title">${g ? escapeHtml(g.name) : key === 'transit' ? '✈️ Skyports' : '⚡ Utilities'} ${progress}</div>`;
@@ -955,17 +834,17 @@ export class GameApp {
         for (const t of tiles) {
           const o = this.s.props[t];
           const row = el('div', `mrow ${o.mortgaged ? 'mortgaged' : ''}`);
-          const lvl = o.houses === 5 ? '<span class="tag gold">Landmark</span>' : o.houses ? `<span class="tag">Level ${o.houses}</span>` : '';
-          row.innerHTML = `<div class="mname">${TILES[t].icon} ${escapeHtml(TILES[t].name)} ${lvl}${o.mortgaged ? ' <span class="tag warn">Mortgaged</span>' : ''}</div>`;
+          const houses = o.houses === 5 ? '🏨' : '🏠'.repeat(o.houses);
+          row.innerHTML = `<div class="mname">${TILES[t].icon} ${escapeHtml(TILES[t].name)} <span class="mh">${houses}</span>${o.mortgaged ? ' <span class="tag warn">Mortgaged</span>' : ''}</div>`;
           const btns = el('div', 'mbtns');
           if (TILES[t].kind === 'property') {
-            btns.append(
-              button(`Build ${money(houseCost(t))}`, 'small good', () => this.act(() => this.game.build(pid, t)), !can || !this.game.canBuild(pid, t)),
-              button(`Sell +${money(houseCost(t) / 2)}`, 'small ghost', () => this.act(() => this.game.sell(pid, t)), !can || !this.game.canSell(pid, t)),
-            );
+            btns.appendChild(button(`+🏠 ${money(houseCost(t))}`, 'small good', () => this.act(() => this.game.build(pid, t)), !can || !this.game.canBuild(pid, t)));
+            btns.appendChild(button(`−🏠 +${money(houseCost(t) / 2)}`, 'small ghost', () => this.act(() => this.game.sell(pid, t)), !can || !this.game.canSell(pid, t)));
           }
-          if (o.mortgaged) btns.appendChild(button(`Pay off ${money(unmortgageCost(t))}`, 'small gold', () => this.act(() => this.game.unmortgage(pid, t)), !can || !this.game.canUnmortgage(pid, t)));
-          else btns.appendChild(button(`Mortgage +${money(mortgageValue(t))}`, 'small ghost', () => this.act(() => this.game.mortgage(pid, t)), !can || !this.game.canMortgage(pid, t)));
+          if (o.mortgaged)
+            btns.appendChild(button(`Pay off ${money(unmortgageCost(t))}`, 'small gold', () => this.act(() => this.game.unmortgage(pid, t)), !can || !this.game.canUnmortgage(pid, t)));
+          else
+            btns.appendChild(button(`Mortgage +${money(mortgageValue(t))}`, 'small ghost', () => this.act(() => this.game.mortgage(pid, t)), !can || !this.game.canMortgage(pid, t)));
           row.appendChild(btns);
           sec.appendChild(row);
           const why = full && can && o.houses < 5 ? this.game.buildBlocker(pid, t) : null;
@@ -974,7 +853,8 @@ export class GameApp {
         list.appendChild(sec);
       }
       m.body.appendChild(list);
-      m.body.appendChild(el('p', 'muted small', can ? 'Own every city in a set to build. Each build adds floors; level 5 is the landmark. Build evenly across the set.' : 'You can manage properties during your own turn.'));
+      if (!can) m.body.appendChild(el('p', 'muted small', 'You can manage properties during your own turn.'));
+      else m.body.appendChild(el('p', 'muted small', 'To build, own every city in a colour set. Houses go on evenly, then a hotel. Mortgaging needs the whole set free of buildings.'));
     };
     update();
     this.registerLive(m, update);
@@ -983,50 +863,98 @@ export class GameApp {
   private openPortfolio(pid: number) {
     const p = this.game.player(pid);
     if (!p.ai && this.game.canManage(pid)) return this.openManage(pid);
-    const m = openModal({ title: `${escapeHtml(p.name)}`, cls: 'manage-modal' });
+    const m = openModal({ title: `${p.token} ${escapeHtml(p.name)}`, cls: 'manage-modal' });
     const owned = this.game.ownedBy(pid);
     m.body.innerHTML = `
-      <div class="manage-head">${icon(p, 30)} Cash <b>${money(p.cash)}</b> · Net worth <b>${money(this.game.netWorth(pid))}</b></div>
+      <div class="manage-head">Cash <b>${money(p.cash)}</b> · Net worth <b>${money(this.game.netWorth(pid))}</b></div>
       <div class="portfolio">${
         owned
           .map((t) => {
             const o = this.s.props[t];
-            return `<button class="pf-item ${o.mortgaged ? 'mortgaged' : ''}" style="--g:${groupColor(t)}" data-tile="${t}">${TILES[t].icon} ${escapeHtml(TILES[t].name)} <span>${o.houses === 5 ? 'Landmark' : o.houses ? 'Level ' + o.houses : ''}</span></button>`;
+            const col = TILES[t].group ? GROUPS[TILES[t].group!].color : '#64748b';
+            return `<div class="pf-item ${o.mortgaged ? 'mortgaged' : ''}" style="--g:${col}" data-tile="${t}">${TILES[t].icon} ${escapeHtml(TILES[t].name)} <span>${o.houses === 5 ? '🏨' : '🏠'.repeat(o.houses)}</span></div>`;
           })
           .join('') || '<p class="muted">No properties.</p>'
       }</div>`;
-    m.body.querySelectorAll<HTMLElement>('.pf-item').forEach((n) =>
-      n.addEventListener('click', () => {
-        m.close();
-        this.openPlace(Number(n.dataset.tile));
-      }),
-    );
+    m.body.querySelectorAll<HTMLElement>('.pf-item').forEach((n) => n.addEventListener('click', () => this.openTile(Number(n.dataset.tile))));
+  }
+
+  private openTile(i: number) {
+    const t = TILES[i];
+    play('click');
+    if (!t.price) {
+      const desc: Record<string, string> = {
+        start: `Collect ${money(this.s.settings.salary)} every time you pass or land here.`,
+        jail: `Just visiting, unless you were busted. Pay ${money(JAIL_FINE)}, use a card, or roll doubles to get out.`,
+        lounge: this.s.settings.jackpot ? `Taxes and fines pile up here. Current jackpot: <b>${money(this.s.jackpot)}</b>.` : 'Relax. Nothing happens here.',
+        gotojail: 'Go directly to Lockup. Do not pass the Launch Pad.',
+        tax: `Pay ${money(t.tax ?? 0)} to the city.`,
+        fortune: 'Draw a Fortune card.',
+        treasury: 'Draw a Treasury card.',
+      };
+      const m = openModal({ title: `${t.icon} ${escapeHtml(t.name)}`, cls: 'tile-modal' });
+      m.body.innerHTML = `<p>${desc[t.kind] ?? ''}</p>`;
+      return;
+    }
+    const m = openModal({ title: 'Deed', cls: 'tile-modal' });
+    const update = () => {
+      m.body.innerHTML = '';
+      m.body.appendChild(deedCard(this.s, i));
+      const own = this.s.props[i];
+      const human = this.humanActor();
+      if (own && human && own.owner === human.id && this.game.canManage(human.id)) {
+        const row = el('div', 'modal-actions');
+        const pid = human.id;
+        if (t.kind === 'property') {
+          row.appendChild(button(`+🏠 ${money(houseCost(i))}`, 'small good', () => this.act(() => this.game.build(pid, i)), this.busy || !this.game.canBuild(pid, i)));
+          row.appendChild(button('−🏠', 'small ghost', () => this.act(() => this.game.sell(pid, i)), this.busy || !this.game.canSell(pid, i)));
+        }
+        if (own.mortgaged) row.appendChild(button('Pay off', 'small gold', () => this.act(() => this.game.unmortgage(pid, i)), this.busy || !this.game.canUnmortgage(pid, i)));
+        else row.appendChild(button('Mortgage', 'small ghost', () => this.act(() => this.game.mortgage(pid, i)), this.busy || !this.game.canMortgage(pid, i)));
+        m.body.appendChild(row);
+      }
+      if (own && t.kind === 'property' && own.houses < 5) {
+        const viewer = human ?? this.s.players.find((p) => !p.ai && p.id === own.owner);
+        if (viewer && viewer.id === own.owner) {
+          const why = this.game.buildBlocker(viewer.id, i);
+          if (why) m.body.appendChild(el('div', 'build-hint center', `🔒 ${escapeHtml(why)}`));
+        }
+      }
+    };
+    update();
+    this.registerLive(m, update);
   }
 
   // ------------------------------------------------------------------ trading
 
   private sideHtml(side: TradeSide, owner: Player) {
-    const parts = side.tiles.map((t) => `<span class="tchip on" style="--g:${groupColor(t)}">${TILES[t].icon} ${escapeHtml(TILES[t].name)}${this.s.props[t]?.mortgaged ? ' (M)' : ''}</span>`);
+    const parts = side.tiles.map((t) => {
+      const col = TILES[t].group ? GROUPS[TILES[t].group!].color : '#64748b';
+      return `<span class="tchip on" style="--g:${col}">${TILES[t].icon} ${escapeHtml(TILES[t].name)}${this.s.props[t]?.mortgaged ? ' (M)' : ''}</span>`;
+    });
     if (side.cash) parts.push(`<span class="tchip cash on">💵 ${money(side.cash)}</span>`);
     if (side.jailCards) parts.push(`<span class="tchip on">🎫 ×${side.jailCards}</span>`);
-    return `<div class="tside"><div class="tside-title" style="--pc:${owner.color}">${icon(owner, 18)} ${escapeHtml(owner.name)} gives</div>${parts.join('') || '<span class="muted">Nothing</span>'}</div>`;
+    return `<div class="tside"><div class="tside-title" style="--pc:${owner.color}">${owner.token} ${escapeHtml(owner.name)} gives</div>${parts.join('') || '<span class="muted">Nothing</span>'}</div>`;
   }
 
   /** Shows a trade to a human player and resolves with their answer. */
   private askTrade(offer: TradeOffer, title: string): Promise<boolean> {
     return new Promise((resolve) => {
-      const from = this.game.player(offer.from), to = this.game.player(offer.to);
+      const from = this.game.player(offer.from);
+      const to = this.game.player(offer.to);
       const m = openModal({ title: '🤝 Trade offer', cls: 'trade-modal', dismissable: false });
       play('card');
       m.body.innerHTML = `<p class="center">${title}</p>
         <div class="trade-review">${this.sideHtml(offer.give, from)}<div class="swap">⇄</div>${this.sideHtml(offer.get, to)}</div>
         <p class="muted center small">${escapeHtml(to.name)}, do you accept?</p>`;
       const row = el('div', 'modal-actions');
-      row.append(
+      row.appendChild(
         button('✅ Accept', 'primary', () => {
           m.close();
           resolve(true);
         }),
+      );
+      row.appendChild(
         button('❌ Decline', 'ghost', () => {
           m.close();
           resolve(false);
@@ -1055,9 +983,10 @@ export class GameApp {
         return !g || TILES.filter((x) => x.group === g).every((x) => (this.s.props[x.index]?.houses ?? 0) === 0);
       });
       for (const t of tradable) {
+        const colr = TILES[t].group ? GROUPS[TILES[t].group!].color : '#64748b';
         const on = side.tiles.includes(t);
         const chip = el('button', `tchip ${on ? 'on' : ''}`, `${TILES[t].icon} ${escapeHtml(TILES[t].short)}${this.s.props[t].mortgaged ? ' (M)' : ''}`);
-        chip.style.setProperty('--g', groupColor(t));
+        chip.style.setProperty('--g', colr);
         chip.addEventListener('click', () => {
           side.tiles = on ? side.tiles.filter((x) => x !== t) : [...side.tiles, t];
           play('click');
@@ -1102,19 +1031,22 @@ export class GameApp {
 
     const propose = async (offer: TradeOffer) => {
       const target = this.game.player(offer.to);
+      let ok: boolean;
       if (target.ai) {
         footer.innerHTML = `<div class="thinking"><span class="dot-pulse" style="--pc:${target.color}"></span> ${escapeHtml(target.name)} is considering…</div>`;
         await sleep(700);
-        if (!acceptsTrade(this.game, offer)) {
+        ok = acceptsTrade(this.game, offer);
+        if (!ok) {
           play('error');
           footer.innerHTML = '';
           footer.appendChild(el('div', 'trade-msg bad-text', `${escapeHtml(target.name)} declined. Try sweetening the deal.`));
           footer.appendChild(button('Propose again', 'primary', () => void propose({ from: pid, to: partner, give, get })));
+          m.body.querySelector('.modal')?.classList.add('shake');
           return;
         }
       } else {
         m.close();
-        const ok = await this.askTrade(offer, `${escapeHtml(me.name)} proposes a trade. Pass the device to <b>${escapeHtml(target.name)}</b>.`);
+        ok = await this.askTrade(offer, `${escapeHtml(me.name)} proposes a trade. Pass the device to <b>${escapeHtml(target.name)}</b>.`);
         if (!ok) {
           toast(`${escapeHtml(target.name)} declined the trade`);
           return;
@@ -1128,7 +1060,7 @@ export class GameApp {
       m.body.innerHTML = '';
       const tabs = el('div', 'seg partner-seg');
       for (const o of others) {
-        const b = el('button', o.id === partner ? 'on' : '', `${icon(o, 18)} ${escapeHtml(o.name)}`);
+        const b = el('button', o.id === partner ? 'on' : '', `${o.token} ${escapeHtml(o.name)}`);
         b.addEventListener('click', () => {
           partner = o.id;
           get = empty();
@@ -1138,8 +1070,11 @@ export class GameApp {
       }
       m.body.appendChild(tabs);
       const grid = el('div', 'trade-grid');
-      grid.append(column(me, give, 'You give'), el('div', 'swap', '⇄'), column(this.game.player(partner), get, `You get from ${escapeHtml(this.game.player(partner).name)}`));
-      m.body.append(grid, footer);
+      grid.appendChild(column(me, give, 'You give'));
+      grid.appendChild(el('div', 'swap', '⇄'));
+      grid.appendChild(column(this.game.player(partner), get, `You get from ${escapeHtml(this.game.player(partner).name)}`));
+      m.body.appendChild(grid);
+      m.body.appendChild(footer);
       refreshFooter();
     };
     draw();
@@ -1147,10 +1082,46 @@ export class GameApp {
 
   // ------------------------------------------------------------------ menus
 
+  private openMenu() {
+    const m = openModal({ title: 'Menu', cls: 'menu-modal' });
+    const list = el('div', 'menu-list');
+    list.appendChild(button('▶ Resume', 'primary', () => m.close()));
+    list.appendChild(
+      button('📖 How to play', 'ghost', () => {
+        m.close();
+        openModal({ title: 'How to play', html: RULES_HTML, cls: 'rules-modal' });
+      }),
+    );
+    list.appendChild(
+      button('🏁 End game now (richest wins)', 'ghost', () => {
+        m.close();
+        void this.confirm('End the game now? The player with the highest net worth wins.', 'End game').then((ok) => {
+          if (!ok) return;
+          this.game.forfeitToWorth();
+          void this.flush().then(() => {
+            this.render();
+            this.save();
+          });
+        });
+      }),
+    );
+    list.appendChild(
+      button('🏠 Main menu', 'ghost', () => {
+        m.close();
+        this.exit();
+      }),
+    );
+    list.appendChild(el('p', 'muted small center', 'Your game is saved automatically.'));
+    m.body.appendChild(list);
+  }
+
   private showGameOver() {
     const s = this.s;
     clearSave();
-    const ranked = [...s.players].sort((a, b) => (a.bankrupt !== b.bankrupt ? (a.bankrupt ? 1 : -1) : this.game.netWorth(b.id) - this.game.netWorth(a.id)));
+    const ranked = [...s.players].sort((a, b) => {
+      if (a.bankrupt !== b.bankrupt) return a.bankrupt ? 1 : -1;
+      return this.game.netWorth(b.id) - this.game.netWorth(a.id);
+    });
     const w = s.winner !== null ? this.game.player(s.winner) : ranked[0];
     play('win');
     confetti(window.innerWidth / 2, window.innerHeight / 3, 220);
@@ -1159,21 +1130,25 @@ export class GameApp {
     const m = openModal({ cls: 'gameover-modal', dismissable: false });
     m.body.innerHTML = `
       <div class="trophy">🏆</div>
-      <div class="winner" style="--pc:${w.color}">${icon(w, 40)} ${escapeHtml(w.name)} wins!</div>
+      <div class="winner" style="--pc:${w.color}">${w.token} ${escapeHtml(w.name)} wins!</div>
       <p class="muted center">Finished in ${s.round} round${s.round === 1 ? '' : 's'}</p>
-      <ol class="standings">${ranked.map((p) => `<li style="--pc:${p.color}" class="${p.bankrupt ? 'out' : ''}"><span>${icon(p, 18)} ${escapeHtml(p.name)}</span><b>${p.bankrupt ? 'Bankrupt' : money(this.game.netWorth(p.id))}</b></li>`).join('')}</ol>`;
+      <ol class="standings">${ranked
+        .map((p) => `<li style="--pc:${p.color}" class="${p.bankrupt ? 'out' : ''}"><span>${p.token} ${escapeHtml(p.name)}</span><b>${p.bankrupt ? 'Bankrupt' : money(this.game.netWorth(p.id))}</b></li>`)
+        .join('')}</ol>`;
     const row = el('div', 'modal-actions');
-    row.append(
+    row.appendChild(
       button('🔁 Play again', 'primary', () => {
         m.close();
         this.exit(true);
       }),
+    );
+    row.appendChild(
       button('🏠 Main menu', 'ghost', () => {
         m.close();
         this.exit();
       }),
-      button('👀 View street', 'ghost', () => m.close()),
     );
+    row.appendChild(button('👀 View board', 'ghost', () => m.close()));
     m.body.appendChild(row);
   }
 }
