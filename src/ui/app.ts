@@ -7,10 +7,9 @@ import { DicePair } from './dice';
 import { confetti, countTo, el, escapeHtml, money, sleep, toast } from './fx';
 import { button, openModal, type ModalHandle } from './modal';
 import { pieceIcon, pieceKind } from './pieces';
-import type { GameScene, HandoffMode, SceneView } from './scene';
 import { RULES_HTML } from './setup';
 import { isMuted, play, setMuted } from './sound';
-import { StreetScene } from './street';
+import { StreetScene, type SceneView } from './street';
 
 type Speed = 'normal' | 'fast' | 'turbo';
 const SPEEDS: Record<Speed, { scene: number; ai: number; roll: number; card: number; step: number }> = {
@@ -20,40 +19,6 @@ const SPEEDS: Record<Speed, { scene: number; ai: number; roll: number; card: num
 };
 const P2D6: Record<number, number> = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
 const SAVE_KEY = 'st-save';
-const PREFS_KEY = 'st-prefs';
-
-export type ViewMode = 'street' | 'board3d';
-
-/** Everything the player can switch on or off. Defaults keep the screen simple. */
-interface Prefs {
-  view: ViewMode;
-  handoff: HandoffMode;
-  speed: Speed;
-  nextUp: boolean;
-  markers: boolean;
-  minimap: boolean;
-  ticker: boolean;
-}
-const DEFAULT_PREFS: Prefs = { view: 'street', handoff: 'zoom', speed: 'normal', nextUp: true, markers: true, minimap: true, ticker: true };
-
-function loadPrefs(): Prefs {
-  try {
-    const p = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') };
-    const legacy = localStorage.getItem('st-speed');
-    if (legacy && !localStorage.getItem(PREFS_KEY)) p.speed = legacy as Speed;
-    return p;
-  } catch {
-    return { ...DEFAULT_PREFS };
-  }
-}
-
-function savePrefs(p: Prefs) {
-  try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
-  } catch {
-    /* ignore */
-  }
-}
 
 export function loadSave(): { state: GameState; mem: AiMemory[] } | null {
   try {
@@ -75,6 +40,21 @@ export function clearSave() {
   }
 }
 
+const pref = (k: string, d: string) => {
+  try {
+    return localStorage.getItem(k) ?? d;
+  } catch {
+    return d;
+  }
+};
+const setPref = (k: string, v: string) => {
+  try {
+    localStorage.setItem(k, v);
+  } catch {
+    /* ignore */
+  }
+};
+
 const icon = (p: Player, size = 26) => pieceIcon(pieceKind(p.token), p.color, size);
 const groupColor = (i: number) => (TILES[i].group ? GROUPS[TILES[i].group!].color : TILES[i].kind === 'transit' ? '#64748b' : '#0e7490');
 
@@ -83,27 +63,26 @@ export class GameApp {
   private sceneHost = el('div', 'scene');
   private minimap = el('div', 'minimap');
   private chipsEl = el('div', 'chips');
-  private roundEl = el('span', 'round');
+  private statusEl = el('div', 'status');
   private promptEl = el('div', 'prompt');
   private actionsEl = el('div', 'actions');
-  private toolsEl = el('div', 'dock-tools');
-  private nextEl = el('div', 'next');
-  private tickerEl = el('button', 'ticker');
+  private stripEl = el('div', 'strip');
+  private nextTitle = el('small');
+  private infoEl = el('div', 'card info');
   private logEl = el('div', 'log');
-  private rulesDrawer = this.drawer('Rules', RULES_HTML);
-  private settingsDrawer = this.drawer('Settings', '');
-  private logDrawer = this.drawer('Game log', '');
+  private drawer = el('div', 'drawer');
   private dice = new DicePair();
-  private scene!: GameScene;
+  private scene: StreetScene;
   private view: SceneView;
-  private prefs = loadPrefs();
   private busy = false;
   private looping = false;
   private destroyed = false;
   private displayCash: number[] = [];
+  private speed: Speed = pref('st-speed', 'normal') as Speed;
   private auctionModal: { key: string; handle: ModalHandle; update: () => void } | null = null;
   private live = new Set<() => void>();
-  private onResize = () => this.scene?.resize();
+  private pinnedSelection = false;
+  private onResize = () => this.scene.resize();
   private onKey = (e: KeyboardEvent) => this.handleKey(e);
 
   constructor(
@@ -121,22 +100,23 @@ export class GameApp {
       moving: null,
       showRange: true,
       rentOf: (i) => game.rentFor(i, 7),
-      onSelect: (i) => this.openPlace(i),
+      onSelect: (i) => this.select(i, true),
     };
     this.displayCash = game.state.players.map((p) => p.cash);
     this.build();
-    for (const line of game.state.log.slice(-60)) this.appendLog(line);
+    this.scene = new StreetScene(this.sceneHost, this.view);
+    this.scene.speed = this.t.scene;
+    for (const line of game.state.log.slice(-40)) this.appendLog(line);
     const opening = game.drain().filter((e) => e.type !== 'log' && e.type !== 'turn');
     window.addEventListener('resize', this.onResize);
     window.visualViewport?.addEventListener('resize', this.onResize);
     document.addEventListener('keydown', this.onKey);
     requestAnimationFrame(() => {
-      void this.mountScene().then(() => {
+      this.scene.start();
+      this.render();
+      void this.playAll(opening).then(() => {
         this.render();
-        void this.playAll(opening).then(() => {
-          this.render();
-          void this.loop();
-        });
+        void this.loop();
       });
     });
   }
@@ -146,7 +126,7 @@ export class GameApp {
   }
 
   private get t() {
-    return SPEEDS[this.prefs.speed];
+    return SPEEDS[this.speed];
   }
 
   destroy() {
@@ -154,146 +134,74 @@ export class GameApp {
     window.removeEventListener('resize', this.onResize);
     window.visualViewport?.removeEventListener('resize', this.onResize);
     document.removeEventListener('keydown', this.onKey);
-    this.scene?.destroy();
+    this.scene.destroy();
     this.auctionModal?.handle.close();
     document.querySelectorAll('.modal-backdrop').forEach((m) => m.remove());
-    [this.rulesDrawer, this.settingsDrawer, this.logDrawer].forEach((d) => d.remove());
+    this.drawer.remove();
     this.root.remove();
-  }
-
-  /** Creates the view picked in settings (the 3D board is loaded only when chosen). */
-  private async mountScene() {
-    this.scene?.destroy();
-    let scene: GameScene;
-    if (this.prefs.view === 'board3d') {
-      try {
-        const { Board3D } = await import('./board3d');
-        scene = new Board3D(this.sceneHost, this.view);
-      } catch {
-        toast('The 3D board could not load here, so the street is shown instead.', 'bad');
-        this.prefs.view = 'street';
-        savePrefs(this.prefs);
-        scene = new StreetScene(this.sceneHost, this.view);
-      }
-    } else scene = new StreetScene(this.sceneHost, this.view);
-    scene.speed = this.t.scene;
-    this.scene = scene;
-    this.sceneHost.classList.toggle('is-3d', this.prefs.view === 'board3d');
-    scene.start();
   }
 
   // ------------------------------------------------------------------ layout
 
-  private drawer(title: string, html: string) {
-    const d = el('div', 'drawer');
-    d.setAttribute('aria-hidden', 'true');
-    d.innerHTML = `<div class="drawer-panel" role="dialog" aria-label="${title}"><h2>${title} <button class="btn tbtn icon" aria-label="Close">✕</button></h2><div class="drawer-body">${html}</div></div>`;
-    d.querySelector('h2 button')!.addEventListener('click', () => this.toggleDrawer(d, false));
-    d.addEventListener('click', (e) => {
-      if (e.target === d) this.toggleDrawer(d, false);
-    });
-    document.body.appendChild(d);
-    return d;
-  }
-
-  private toggleDrawer(d: HTMLElement, open: boolean) {
-    if (open) [this.rulesDrawer, this.settingsDrawer, this.logDrawer].forEach((x) => x !== d && this.toggleDrawer(x, false));
-    d.classList.toggle('open', open);
-    d.setAttribute('aria-hidden', String(!open));
-  }
-
   private build() {
-    const top = el('header', 'topbar');
-    const rules = button('📖', 'tbtn icon', () => this.toggleDrawer(this.rulesDrawer, true));
-    rules.setAttribute('aria-label', 'Rules');
-    rules.title = 'Rules';
-    const settings = button('⚙️', 'tbtn icon', () => this.openSettings());
-    settings.setAttribute('aria-label', 'Settings');
-    settings.title = 'Settings';
-    top.append(this.chipsEl, this.roundEl, rules, settings);
+    const bar = el('header', 'toolbar');
+    bar.innerHTML = `<div class="brand"><span class="logo-sky">SKYLINE</span> <span class="logo-ty">TYCOON</span></div>`;
+    bar.appendChild(this.statusEl);
+    const rules = button('📖 Rules', 'tbtn', () => this.openRules(true));
+    const sound = button(isMuted() ? '🔇' : '🔊', 'tbtn icon', () => {
+      setMuted(!isMuted());
+      sound.textContent = isMuted() ? '🔇' : '🔊';
+      play('click');
+    });
+    sound.setAttribute('aria-label', 'Sound');
+    const speedBtn = button(this.speedLabel(), 'tbtn icon', () => {
+      const order: Speed[] = ['normal', 'fast', 'turbo'];
+      this.speed = order[(order.indexOf(this.speed) + 1) % 3];
+      setPref('st-speed', this.speed);
+      speedBtn.textContent = this.speedLabel();
+      this.scene.speed = this.t.scene;
+      toast(`Speed: <b>${this.speed}</b>`);
+    });
+    speedBtn.setAttribute('aria-label', 'Game speed');
+    const menu = button('☰', 'tbtn icon', () => this.openMenu());
+    menu.setAttribute('aria-label', 'Menu');
+    bar.append(rules, sound, speedBtn, menu);
 
     this.sceneHost.appendChild(this.minimap);
-    const dock = el('div', 'dock');
-    dock.append(this.dice.root, this.promptEl, this.actionsEl, this.toolsEl);
-    this.tickerEl.addEventListener('click', () => this.toggleDrawer(this.logDrawer, true));
-    this.logDrawer.querySelector('.drawer-body')!.appendChild(this.logEl);
-    this.root.append(top, this.sceneHost, dock, this.tickerEl, this.nextEl);
+    const actionBar = el('div', 'bar');
+    actionBar.append(this.dice.root, this.promptEl, this.actionsEl);
+    const next = el('div', 'next card');
+    const h = el('h3', '', 'Next up ');
+    h.appendChild(this.nextTitle);
+    next.append(h, this.stripEl);
+    const side = el('aside', 'side');
+    const logCard = el('div', 'card');
+    logCard.innerHTML = '<h3>Game log</h3>';
+    logCard.appendChild(this.logEl);
+    side.append(this.infoEl, logCard);
+    const grid = el('div', 'layout');
+    grid.append(this.sceneHost, actionBar, next, side);
+    this.root.append(bar, this.chipsEl, grid);
+
+    this.drawer.setAttribute('aria-hidden', 'true');
+    this.drawer.innerHTML = `<div class="drawer-panel" role="dialog" aria-label="Rules"><h2>Rules <button class="tbtn icon" aria-label="Close rules">✕</button></h2>${RULES_HTML}</div>`;
+    this.drawer.querySelector('button')!.addEventListener('click', () => this.openRules(false));
+    this.drawer.addEventListener('click', (e) => {
+      if (e.target === this.drawer) this.openRules(false);
+    });
+    document.body.appendChild(this.drawer);
     this.host.innerHTML = '';
     this.host.appendChild(this.root);
     this.dice.show(this.s.dice);
-    this.applyPrefs();
   }
 
-  private applyPrefs() {
-    this.minimap.hidden = !this.prefs.minimap;
-    this.nextEl.hidden = !this.prefs.nextUp;
-    this.tickerEl.hidden = !this.prefs.ticker;
-    if (this.scene) this.scene.speed = this.t.scene;
+  private openRules(open: boolean) {
+    this.drawer.classList.toggle('open', open);
+    this.drawer.setAttribute('aria-hidden', String(!open));
   }
 
-  private openSettings() {
-    const body = this.settingsDrawer.querySelector('.drawer-body')!;
-    const seg = <T extends string>(key: keyof Prefs, label: string, opts: [T, string][], note = '') => `
-      <div class="set-row"><div class="set-label">${label}${note ? `<small>${note}</small>` : ''}</div>
-      <div class="seg">${opts.map(([v, l]) => `<button data-key="${key}" data-val="${v}" class="${this.prefs[key] === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
-    const toggle = (key: keyof Prefs, label: string, note: string) => `
-      <label class="set-row switch"><input type="checkbox" data-toggle="${key}" ${this.prefs[key] ? 'checked' : ''}/><span></span><div class="set-label">${label}<small>${note}</small></div></label>`;
-    body.innerHTML = `
-      <h4>Look</h4>
-      ${seg<ViewMode>('view', 'View', [['street', '🚗 Street'], ['board3d', '🎲 3D board']])}
-      ${seg<HandoffMode>('handoff', 'Turn change', [['zoom', 'Zoom + card'], ['card', 'Card'], ['instant', 'Instant']])}
-      ${seg<Speed>('speed', 'Speed', [['normal', 'Normal'], ['fast', 'Fast'], ['turbo', 'Turbo']])}
-      <h4>Helpers</h4>
-      ${toggle('nextUp', 'Next up strip', 'The next 12 spaces and what happens there')}
-      ${toggle('markers', 'Landing marks', 'Gold marks where you can land')}
-      ${toggle('minimap', 'Mini-map', 'All 40 spaces at a glance')}
-      ${toggle('ticker', 'Latest event', 'One line about what just happened')}
-      <h4>Sound</h4>
-      <label class="set-row switch"><input type="checkbox" data-sound ${isMuted() ? '' : 'checked'}/><span></span><div class="set-label">Sound effects</div></label>
-      <h4>Game</h4>
-      <div class="set-actions"></div>
-      <p class="muted small">Your game saves automatically.</p>`;
-    body.querySelectorAll<HTMLButtonElement>('[data-key]').forEach((b) =>
-      b.addEventListener('click', () => {
-        const key = b.dataset.key as keyof Prefs;
-        (this.prefs as unknown as Record<string, string>)[key] = b.dataset.val!;
-        savePrefs(this.prefs);
-        play('click');
-        if (key === 'view') void this.mountScene().then(() => this.render());
-        this.applyPrefs();
-        this.openSettings();
-      }),
-    );
-    body.querySelectorAll<HTMLInputElement>('[data-toggle]').forEach((inp) =>
-      inp.addEventListener('change', () => {
-        (this.prefs as unknown as Record<string, boolean>)[inp.dataset.toggle!] = inp.checked;
-        savePrefs(this.prefs);
-        this.applyPrefs();
-        this.render();
-      }),
-    );
-    body.querySelector<HTMLInputElement>('[data-sound]')!.addEventListener('change', (e) => {
-      setMuted(!(e.target as HTMLInputElement).checked);
-      play('click');
-    });
-    body.querySelector('.set-actions')!.append(
-      button('🏁 End game (richest wins)', 'ghost', () => {
-        this.toggleDrawer(this.settingsDrawer, false);
-        void this.confirm('End the game now? The player with the highest net worth wins.', 'End game').then((ok) => {
-          if (!ok) return;
-          this.game.forfeitToWorth();
-          void this.flush().then(() => {
-            this.render();
-            this.save();
-          });
-        });
-      }),
-      button('🏠 Main menu', 'ghost', () => {
-        this.toggleDrawer(this.settingsDrawer, false);
-        this.exit();
-      }),
-    );
-    this.toggleDrawer(this.settingsDrawer, true);
+  private speedLabel() {
+    return this.speed === 'normal' ? '▶' : this.speed === 'fast' ? '⏩' : '⚡';
   }
 
   // ------------------------------------------------------------------ rendering
@@ -301,10 +209,11 @@ export class GameApp {
   private render() {
     if (this.destroyed) return;
     this.view.state = this.s;
-    this.view.showRange = this.prefs.markers && this.s.phase === 'roll' && !this.busy;
+    this.view.showRange = this.s.phase === 'roll' && !this.busy;
     this.renderChips();
     this.renderControls();
-    this.renderNext();
+    this.renderStrip();
+    this.renderInfo();
     this.renderMinimap();
     this.syncAuction();
     for (const fn of this.live) fn();
@@ -312,16 +221,24 @@ export class GameApp {
 
   private renderChips() {
     const s = this.s;
-    this.roundEl.textContent = s.settings.roundLimit ? `Round ${Math.min(s.round, s.settings.roundLimit)}/${s.settings.roundLimit}` : `Round ${s.round}`;
-    this.roundEl.title = `Round ${s.round}`;
+    const round = s.settings.roundLimit ? `Round ${Math.min(s.round, s.settings.roundLimit)}/${s.settings.roundLimit}` : `Round ${s.round}`;
+    const cur = this.game.cur;
+    this.statusEl.innerHTML = `${round} · <span style="color:${cur.color}">${escapeHtml(cur.name)}</span> <small>${s.phase === 'gameover' ? 'game over' : cur.ai ? 'is playing' : 'to play'}</small>`;
     this.chipsEl.innerHTML = s.players
       .map((p) => {
+        const sets = Object.values(GROUPS).filter((g) => TILES.some((t) => t.group === g.id && s.props[t.index]?.owner === p.id));
+        const badges = [
+          p.ai ? `<span class="badge">AI · ${p.difficulty}</span>` : '',
+          p.inJail ? '<span class="badge warn">🔒 Lockup</span>' : '',
+          p.jailCards.length ? `<span class="badge">🎫×${p.jailCards.length}</span>` : '',
+          p.bankrupt ? '<span class="badge bad">Bankrupt</span>' : '',
+        ].join('');
         const on = p.id === s.current && s.phase !== 'gameover';
-        const marks = `${p.inJail ? '<i title="In Lockup">🔒</i>' : ''}${p.jailCards.length ? '<i title="Get-out card">🎫</i>' : ''}`;
-        return `<button class="chip ${on ? 'on' : ''} ${p.bankrupt ? 'out' : ''}" data-pid="${p.id}" style="--pc:${p.color}" title="${escapeHtml(p.name)}${p.ai ? ' (AI)' : ''}">
-          <span class="av">${icon(p, 24)}</span>
-          <span class="nm">${escapeHtml(p.name)}${marks}</span>
-          <span class="cash" data-cash="${p.id}">${p.bankrupt ? 'Out' : money(this.displayCash[p.id] ?? p.cash)}</span>
+        return `<button class="chip ${on ? 'on' : ''} ${p.bankrupt ? 'out' : ''}" data-pid="${p.id}" style="--pc:${p.color}">
+          <span class="av">${icon(p, 26)}</span>
+          <span class="nm">${escapeHtml(p.name)}</span>
+          <span class="cash" data-cash="${p.id}">${money(this.displayCash[p.id] ?? p.cash)}</span>
+          <span class="sets">${sets.map((g) => `<i class="${this.game.hasFullSet(p.id, g.id) ? 'full' : ''}" style="--g:${g.color}" title="${escapeHtml(g.name)}"></i>`).join('')}${badges}</span>
         </button>`;
       })
       .join('');
@@ -329,40 +246,39 @@ export class GameApp {
   }
 
   private renderMinimap() {
-    if (this.minimap.hidden) return;
     const s = this.s;
     this.minimap.innerHTML =
       TILES.map((t) => {
         const o = s.props[t.index];
         const style = `${t.group ? `--g:${GROUPS[t.group].color};` : ''}${o ? `--oc:${s.players[o.owner].color}` : ''}`;
-        return `<i data-i="${t.index}" class="${o ? 'own' : ''}" style="${style}" title="${escapeHtml(t.name)}"></i>`;
+        return `<i data-i="${t.index}" class="${o ? 'own' : ''} ${t.index === this.view.selected ? 'hot' : ''}" style="${style}" title="${escapeHtml(t.name)}"></i>`;
       }).join('') +
       s.players.filter((p) => !p.bankrupt).map((p) => `<span class="mm-p ${p.id === s.current ? 'cur' : ''}" style="--pc:${p.color};left:${((p.pos + 0.5) / 40) * 100}%"></span>`).join('');
     this.minimap.querySelectorAll<HTMLElement>('i').forEach((c) =>
       c.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.openPlace(Number(c.dataset.i));
+        this.select(Number(c.dataset.i), true);
       }),
     );
   }
 
-  /** What landing on `i` would mean for player `pid`, in a couple of words. */
+  /** What landing on `i` would mean for player `pid`. */
   private describe(i: number, pid: number): { text: string; cls: string } {
     const t = TILES[i], o = this.s.props[i];
     if (t.price) {
-      if (!o) return { text: money(t.price), cls: 'buy' };
-      if (o.owner === pid) return { text: 'Yours', cls: 'mine' };
-      if (o.mortgaged) return { text: 'Free', cls: '' };
-      return { text: `−${money(this.game.rentFor(i, 7))}`, cls: 'bad' };
+      if (!o) return { text: `Buy ${money(t.price)}`, cls: 'buy' };
+      if (o.owner === pid) return { text: o.houses === 5 ? '★ yours' : o.houses ? `${'●'.repeat(o.houses)} yours` : 'Yours', cls: '' };
+      if (o.mortgaged) return { text: 'Mortgaged', cls: '' };
+      return { text: `Pay ${t.kind === 'utility' ? '~' : ''}${money(this.game.rentFor(i, 7))}`, cls: 'bad' };
     }
     switch (t.kind) {
       case 'tax':
-        return { text: `−${money(t.tax!)}`, cls: 'bad' };
+        return { text: `Pay ${money(t.tax!)}`, cls: 'bad' };
       case 'gotojail':
-        return { text: 'Jail', cls: 'bad' };
+        return { text: 'To Lockup', cls: 'bad' };
       case 'fortune':
       case 'treasury':
-        return { text: 'Card', cls: '' };
+        return { text: 'Draw card', cls: '' };
       case 'start':
         return { text: `+${money(this.s.settings.salary)}`, cls: 'buy' };
       case 'lounge':
@@ -372,64 +288,82 @@ export class GameApp {
     }
   }
 
-  /** Compact strip of the next 12 spaces; brighter = more likely to land there. */
-  private renderNext() {
-    if (this.nextEl.hidden) return;
+  private renderStrip() {
     const s = this.s, p = this.game.cur;
-    let html = `<div class="next-head"><span>Next up</span><small>${p.inJail ? `${escapeHtml(p.name)} is in Lockup` : 'tap a space for details'}</small><span class="legend"><i class="buy"></i>buy <i class="bad"></i>pay <i class="mine"></i>yours</span></div><div class="next-row">`;
+    this.nextTitle.textContent = p.inJail ? `${p.name} is in Lockup` : `${p.name} · from ${TILES[p.pos].name}`;
+    let html = '';
     for (let d = 1; d <= 12; d++) {
       const i = (p.pos + d) % 40, t = TILES[i], o = s.props[i], ds = this.describe(i, p.id), pr = P2D6[d] ?? 0;
-      html += `<button class="nx ${ds.cls}" data-i="${i}" style="--g:${groupColor(i)};--odds:${0.35 + (pr / 6) * 0.65}" title="${escapeHtml(t.name)} · ${pr ? Math.round((pr / 36) * 100) + '% chance' : 'can’t land'}">
-        ${o ? `<span class="own" style="--oc:${s.players[o.owner].color}"></span>` : ''}<span class="ic">${t.icon}</span><span class="v">${ds.text}</span><span class="d">${d}</span></button>`;
+      html += `<button class="slot ${this.view.selected === i ? 'hot' : ''}" data-i="${i}" style="--g:${groupColor(i)}">
+        ${o ? `<span class="own" style="--oc:${s.players[o.owner].color}"></span>` : ''}
+        <span class="d">+${d}</span><span class="ic">${t.icon}</span><span class="n">${escapeHtml(t.short)}</span>
+        <span class="v ${ds.cls}">${ds.text}</span>
+        <span class="p"><i style="width:${(pr / 6) * 100}%"></i></span><span class="pct">${pr ? Math.round((pr / 36) * 100) + '% chance' : 'can’t land'}</span></button>`;
     }
-    this.nextEl.innerHTML = html + '</div>';
-    this.nextEl.querySelectorAll<HTMLElement>('.nx').forEach((b) => b.addEventListener('click', () => this.openPlace(Number(b.dataset.i))));
+    this.stripEl.innerHTML = html;
+    this.stripEl.querySelectorAll<HTMLElement>('.slot').forEach((b) => b.addEventListener('click', () => this.select(Number(b.dataset.i), true)));
   }
 
-  /** Details for one space, opened on tap. Owners can build or mortgage from here. */
-  private openPlace(i: number) {
+  private select(i: number, byUser = false) {
     this.view.selected = i;
-    play('click');
-    const m = openModal({ title: '', cls: 'place-modal' });
-    const update = () => {
-      const t = TILES[i], o = this.s.props[i], s = this.s;
-      const kind = t.group ? GROUPS[t.group].name : ({ start: 'Corner', jail: 'Corner', lounge: 'Corner', gotojail: 'Corner', tax: 'Tax', fortune: 'Card', treasury: 'Card', transit: 'Skyport', utility: 'Utility' } as Record<string, string>)[t.kind];
-      let status = '';
-      if (o) {
-        const p = s.players[o.owner];
-        status = `<div class="place-status" style="--pc:${p.color}">${icon(p, 22)}<span><b>${escapeHtml(p.name)}</b> owns it${o.houses ? ` · ${o.houses === 5 ? 'Landmark' : 'Level ' + o.houses}` : ''}</span><b class="place-rent">${o.mortgaged ? 'No rent (mortgaged)' : `Rent ${t.kind === 'utility' ? '~' : ''}${money(this.game.rentFor(i, 7))}`}</b></div>`;
-      } else if (t.price) status = `<div class="place-status free"><span>For sale</span><b class="place-rent">${money(t.price)}</b></div>`;
+    if (byUser) {
+      this.pinnedSelection = true;
+      play('click');
+    }
+    this.renderInfo();
+    this.renderStrip();
+    this.renderMinimap();
+  }
+
+  private renderInfo() {
+    const i = this.view.selected, t = TILES[i], o = this.s.props[i], s = this.s;
+    const kind = t.group
+      ? GROUPS[t.group].name
+      : ({ start: 'Corner', jail: 'Corner', lounge: 'Corner', gotojail: 'Corner', tax: 'Tax', fortune: 'Card', treasury: 'Card', transit: 'Skyport', utility: 'Utility' } as Record<string, string>)[t.kind];
+    let body = '';
+    if (t.kind === 'property') {
+      const r = t.rents!;
+      const rows: [string, number][] = [['Rent', r[0]], ['Full set', r[0] * 2], ['Level 1', r[1]], ['Level 2', r[2]], ['Level 3', r[3]], ['Level 4', r[4]], ['Landmark', r[5]]];
+      const cur = o ? (o.houses ? o.houses + 1 : this.game.hasFullSet(o.owner, t.group!) ? 1 : 0) : -1;
+      body = `<table class="rent">${rows.map(([l, v], k) => `<tr class="${k === cur ? 'cur' : ''}"><td>${l}</td><td>${money(v)}</td></tr>`).join('')}
+        <tr class="sep"><td>Build cost (per level)</td><td>${money(houseCost(i))}</td></tr><tr><td>Mortgage value</td><td>${money(mortgageValue(i))}</td></tr></table>`;
+    } else if (t.kind === 'transit') body = `<table class="rent"><tr><td>1 Skyport owned</td><td>$25</td></tr><tr><td>2 owned</td><td>$50</td></tr><tr><td>3 owned</td><td>$100</td></tr><tr><td>4 owned</td><td>$200</td></tr><tr class="sep"><td>Mortgage value</td><td>${money(mortgageValue(i))}</td></tr></table>`;
+    else if (t.kind === 'utility') body = `<p class="muted">Rent is 4× the dice roll, or 10× if the owner has both utilities.</p>`;
+    else {
       const desc: Record<string, string> = {
-        start: `Collect ${money(s.settings.salary)} every time you pass.`,
-        jail: `Just visiting, unless you were sent here. Leave by paying ${money(JAIL_FINE)}, using a card, or rolling doubles.`,
-        lounge: s.settings.jackpot ? `Land here to win the jackpot: <b>${money(s.jackpot)}</b>.` : 'A free rest stop.',
-        gotojail: 'Go straight to Lockup.',
-        tax: `Pay ${money(t.tax ?? 0)}.`,
-        fortune: 'Draw a Fortune card.',
-        treasury: 'Draw a Treasury card.',
-        utility: 'Rent is 4× the dice, or 10× if the owner has both utilities.',
-        transit: 'Rent $25, doubling with each Skyport the owner has.',
+        start: `Collect ${money(s.settings.salary)} every time you pass or land here.`,
+        jail: `Just visiting, unless you were sent here. To leave: pay ${money(JAIL_FINE)}, use a get-out card, or roll doubles within 3 turns.`,
+        lounge: s.settings.jackpot ? `Taxes and fines pile up here. Land on it to win the jackpot: <b>${money(s.jackpot)}</b>.` : 'A free rest stop.',
+        gotojail: 'Go straight to Lockup. You don’t collect your salary.',
+        tax: `Pay ${money(t.tax ?? 0)} to the city.`,
+        fortune: 'Draw a Fortune card. It can help or hurt.',
+        treasury: 'Draw a Treasury card. Usually money.',
       };
-      let details = '';
+      body = `<p class="muted">${desc[t.kind] ?? ''}</p>`;
+    }
+    let owner = '';
+    if (o) {
+      const p = s.players[o.owner];
+      owner = `<div class="owner-line"><span class="dot" style="--oc:${p.color}"></span> Owned by <b style="color:${p.color}">${escapeHtml(p.name)}</b>${o.houses ? ` · ${o.houses === 5 ? 'Landmark' : 'Level ' + o.houses}` : ''}${o.mortgaged ? ' · <span class="warn-text">Mortgaged</span>' : ` · rent now <b>${t.kind === 'utility' ? '~' : ''}${money(this.game.rentFor(i, 7))}</b>`}</div>`;
+    } else if (t.price) owner = `<div class="owner-line"><span class="dot"></span> For sale · ${money(t.price)}</div>`;
+    this.infoEl.innerHTML = `<div class="info-head"><div class="info-ic" style="--g:${groupColor(i)}">${t.icon}</div><div><div class="info-title">${escapeHtml(t.name)}</div><div class="info-sub">${kind}${t.price ? ' · ' + money(t.price) : ''}</div></div></div>${body}${owner}`;
+    // Owners can manage right here during their turn.
+    const human = this.humanActor();
+    if (o && human && o.owner === human.id && this.game.canManage(human.id)) {
+      const row = el('div', 'info-actions');
+      const pid = human.id;
       if (t.kind === 'property') {
-        const r = t.rents!;
-        const cur = o ? (o.houses ? o.houses + 1 : this.game.hasFullSet(o.owner, t.group!) ? 1 : 0) : -1;
-        const rows: [string, number][] = [['Rent', r[0]], ['Full set', r[0] * 2], ['Level 1', r[1]], ['Level 2', r[2]], ['Level 3', r[3]], ['Level 4', r[4]], ['Landmark', r[5]]];
-        details = `<details class="place-more"><summary>Rent at each level</summary><table class="rent">${rows.map(([l, v], k) => `<tr class="${k === cur ? 'cur' : ''}"><td>${l}</td><td>${money(v)}</td></tr>`).join('')}<tr class="sep"><td>Each build</td><td>${money(houseCost(i))}</td></tr><tr><td>Mortgage value</td><td>${money(mortgageValue(i))}</td></tr></table></details>`;
-      } else if (desc[t.kind]) details = `<p class="muted">${desc[t.kind]}</p>`;
-      m.body.innerHTML = `<div class="place-head" style="--g:${groupColor(i)}"><span class="place-ic">${t.icon}</span><div><div class="place-title">${escapeHtml(t.name)}</div><div class="muted small">${kind}</div></div></div>${status}${details}`;
-      const human = this.humanActor();
-      if (o && human && o.owner === human.id && this.game.canManage(human.id)) {
-        const pid = human.id, row = el('div', 'modal-actions');
-        if (t.kind === 'property') row.append(button(`Build ${money(houseCost(i))}`, 'good', () => this.act(() => this.game.build(pid, i)), this.busy || !this.game.canBuild(pid, i)), button('Sell', 'ghost', () => this.act(() => this.game.sell(pid, i)), this.busy || !this.game.canSell(pid, i)));
-        row.append(o.mortgaged ? button(`Pay off ${money(unmortgageCost(i))}`, 'gold', () => this.act(() => this.game.unmortgage(pid, i)), this.busy || !this.game.canUnmortgage(pid, i)) : button('Mortgage', 'ghost', () => this.act(() => this.game.mortgage(pid, i)), this.busy || !this.game.canMortgage(pid, i)));
-        m.body.appendChild(row);
-        const why = t.kind === 'property' && o.houses < 5 ? this.game.buildBlocker(pid, i) : null;
-        if (why) m.body.appendChild(el('p', 'build-hint', `🔒 ${escapeHtml(why)}`));
+        row.appendChild(button(`Build ${money(houseCost(i))}`, 'small good', () => this.act(() => this.game.build(pid, i)), this.busy || !this.game.canBuild(pid, i)));
+        row.appendChild(button(`Sell +${money(houseCost(i) / 2)}`, 'small ghost', () => this.act(() => this.game.sell(pid, i)), this.busy || !this.game.canSell(pid, i)));
       }
-    };
-    update();
-    this.registerLive(m, update);
+      if (o.mortgaged) row.appendChild(button(`Pay off ${money(unmortgageCost(i))}`, 'small gold', () => this.act(() => this.game.unmortgage(pid, i)), this.busy || !this.game.canUnmortgage(pid, i)));
+      else row.appendChild(button(`Mortgage +${money(mortgageValue(i))}`, 'small ghost', () => this.act(() => this.game.mortgage(pid, i)), this.busy || !this.game.canMortgage(pid, i)));
+      this.infoEl.appendChild(row);
+      if (t.kind === 'property' && o.houses < 5) {
+        const why = this.game.buildBlocker(pid, i);
+        if (why) this.infoEl.appendChild(el('div', 'build-hint', `🔒 ${escapeHtml(why)}`));
+      }
+    }
   }
 
   private humanActor(): Player | null {
@@ -443,79 +377,63 @@ export class GameApp {
     this.actionsEl.append(...btns);
   }
 
-  private setTools(pid: number | null) {
-    this.toolsEl.innerHTML = '';
-    if (pid === null) return;
-    const manage = button('🏗️', 'tbtn icon', () => this.openManage(pid));
-    manage.title = 'Build & mortgage';
-    manage.setAttribute('aria-label', 'Build and mortgage');
-    const trade = button('🤝', 'tbtn icon', () => this.openTrade(pid));
-    trade.title = 'Trade';
-    trade.setAttribute('aria-label', 'Trade');
-    this.toolsEl.append(manage, trade);
-  }
-
-  /** One short instruction and the buttons for it. */
-  private say(title: string, sub = '') {
-    this.promptEl.innerHTML = `<b>${title}</b>${sub ? `<small>${sub}</small>` : ''}`;
-  }
-
   private renderControls() {
     const s = this.s, cur = this.game.cur;
-    this.setTools(null);
     if (s.phase === 'gameover') {
       const w = s.winner !== null ? this.game.player(s.winner) : null;
-      this.say(w ? `🏆 ${escapeHtml(w.name)} wins!` : 'Game over');
+      this.promptEl.innerHTML = w ? `🏆 <b>${escapeHtml(w.name)}</b> wins!` : 'Game over';
       this.setActions(button('New game', 'primary', () => this.exit()));
       return;
     }
     const actor = this.game.player(this.game.actor());
     if (actor.ai || this.busy) {
-      this.promptEl.innerHTML = actor.ai ? `<span class="dot-pulse" style="--pc:${actor.color}"></span> <b>${escapeHtml(actor.name)}</b> is playing…` : '';
+      this.promptEl.innerHTML = actor.ai ? `<span class="dot-pulse" style="--pc:${actor.color}"></span> <b>${escapeHtml(actor.name)}</b> is playing…` : `<b>${escapeHtml(cur.name)}</b>…`;
       this.setActions();
       return;
     }
-    const you = this.s.players.filter((p) => !p.ai).length > 1 ? escapeHtml(actor.name) + ', ' : '';
+    const name = escapeHtml(actor.name);
+    const manage = () => button('🏗️ Manage', 'ghost', () => this.openManage(actor.id));
+    const trade = () => button('🤝 Trade', 'ghost', () => this.openTrade(actor.id));
     switch (s.phase) {
       case 'roll':
         if (cur.inJail) {
-          this.say(`🔒 ${you}you're in Lockup`, `Roll doubles to get out (try ${cur.jailTurns + 1} of 3), or pay ${money(JAIL_FINE)}.`);
+          this.promptEl.innerHTML = `🔒 <b>${name}</b>, you're in Lockup (try ${cur.jailTurns + 1} of 3). Roll doubles, pay ${money(JAIL_FINE)}, or use a card.`;
           const btns = [button('🎲 Roll', 'primary', () => this.act(() => this.game.roll())), button(`Pay ${money(JAIL_FINE)}`, 'gold', () => this.act(() => this.game.payJailFine()), cur.cash < JAIL_FINE)];
           if (cur.jailCards.length) btns.push(button('🎫 Use card', 'gold', () => this.act(() => this.game.useJailCard())));
-          this.setActions(...btns);
+          this.setActions(...btns, manage(), trade());
         } else {
-          this.say(s.doublesCount ? `🎉 Doubles! ${you}roll again` : `${you}your turn`);
-          this.setActions(button(s.doublesCount ? '🎲 Roll again' : '🎲 Roll', 'primary pulse', () => this.act(() => this.game.roll())));
+          this.promptEl.innerHTML = s.doublesCount ? `🎉 Doubles! <b>${name}</b>, roll again.` : `<b>${name}</b>, your turn. The gold marks and <b>Next up</b> show where you could land.`;
+          this.setActions(button(s.doublesCount ? '🎲 Roll again' : '🎲 Roll', 'primary pulse', () => this.act(() => this.game.roll())), manage(), trade());
         }
-        this.setTools(actor.id);
         break;
       case 'end':
-        this.say(`${you}done?`, 'Build or trade first if you like.');
-        this.setActions(button('End turn ➜', 'primary', () => this.act(() => this.game.endTurn())));
-        this.setTools(actor.id);
+        this.promptEl.innerHTML = `<b>${name}</b>, build, trade or end your turn.`;
+        this.setActions(button('End turn ➜', 'primary', () => this.act(() => this.game.endTurn())), manage(), trade());
         break;
       case 'buy': {
         const t = TILES[cur.pos], short = cur.cash < t.price!;
-        const rent = t.kind === 'property' ? `Rent ${money(t.rents![0])}` : t.kind === 'transit' ? 'Rent from $25' : 'Rent 4× dice';
-        this.say(`Buy ${t.icon} ${escapeHtml(t.name)}?`, short ? `You need ${money(t.price! - cur.cash)} more. Mortgage something or let it go.` : `${rent} · you'd keep ${money(cur.cash - t.price!)}`);
-        const btns = [button(`Buy ${money(t.price!)}`, 'primary', () => this.act(() => this.game.buy()), short), button(s.settings.auctions ? 'Auction' : 'Skip', 'ghost', () => this.act(() => this.game.decline()))];
-        const info = button('ⓘ', 'tbtn icon', () => this.openPlace(cur.pos));
-        info.setAttribute('aria-label', 'Details');
-        this.setActions(...btns, info);
-        if (short) this.setTools(actor.id);
+        this.promptEl.innerHTML = short
+          ? `<b>${escapeHtml(t.name)}</b> costs ${money(t.price!)} but you have ${money(cur.cash)}. Mortgage something or ${s.settings.auctions ? 'send it to auction' : 'pass'}.`
+          : `Buy <b>${t.icon} ${escapeHtml(t.name)}</b> for <b>${money(t.price!)}</b>? You'd have ${money(cur.cash - t.price!)} left.`;
+        const btns = [button(`Buy ${money(t.price!)}`, 'primary', () => this.act(() => this.game.buy()), short), button(s.settings.auctions ? '🔨 Auction' : 'Pass', 'ghost', () => this.act(() => this.game.decline()))];
+        if (short) btns.push(manage());
+        this.setActions(...btns);
+        if (!this.pinnedSelection) this.select(cur.pos);
         break;
       }
       case 'auction':
-        this.say('🔨 Auction');
+        this.promptEl.innerHTML = `🔨 Auction in progress.`;
         this.setActions();
         break;
       case 'debt': {
         const d = s.debts[0];
-        this.say(`⚠️ ${you}you owe ${money(d.amount)}`, `You have ${money(actor.cash)}. Sell buildings or mortgage to pay.`);
+        const to = d.to !== null ? this.game.player(d.to).name : 'the bank';
+        const canRaise = this.game.liquidity(actor.id) >= this.game.debtTotal(actor.id);
+        this.promptEl.innerHTML = `⚠️ <b>${name}</b> owes <b>${money(d.amount)}</b> to ${escapeHtml(to)} but has ${money(actor.cash)}. Sell buildings or mortgage to raise ${money(d.amount - actor.cash)}.${canRaise ? '' : ' <span class="warn-text">Even selling everything won’t cover it.</span>'}`;
         this.setActions(
-          button('Raise cash', 'primary', () => this.openManage(actor.id)),
-          button('Give up', 'danger', () => {
-            void this.confirm(`Declare bankruptcy? ${escapeHtml(actor.name)} is out of the game.`, 'Go bankrupt').then((ok) => {
+          button('🏗️ Raise cash', 'primary', () => this.openManage(actor.id)),
+          button('💥 Go bankrupt', 'danger', () => {
+            void this.confirm(`Declare bankruptcy? ${name} is out of the game.`, 'Go bankrupt').then((ok) => {
               if (ok) void this.act(() => this.game.declareBankruptcy());
             });
           }),
@@ -528,8 +446,7 @@ export class GameApp {
   private appendLog(text: string) {
     const line = el('div', 'log-line', escapeHtml(text));
     this.logEl.prepend(line);
-    while (this.logEl.childElementCount > 120) this.logEl.lastElementChild!.remove();
-    this.tickerEl.innerHTML = `<span>${escapeHtml(text)}</span><small>Log</small>`;
+    while (this.logEl.childElementCount > 80) this.logEl.lastElementChild!.remove();
   }
 
   private syncCash() {
@@ -537,7 +454,7 @@ export class GameApp {
       const from = this.displayCash[p.id];
       if (from !== p.cash) {
         const node = this.chipsEl.querySelector<HTMLElement>(`[data-cash="${p.id}"]`);
-        if (node && !p.bankrupt) countTo(node, from, p.cash, 500);
+        if (node) countTo(node, from, p.cash, 500);
         this.displayCash[p.id] = p.cash;
       }
     });
@@ -633,9 +550,8 @@ export class GameApp {
   }
 
   private handleKey(e: KeyboardEvent) {
-    const drawers = [this.rulesDrawer, this.settingsDrawer, this.logDrawer];
-    if (e.key === 'Escape') drawers.forEach((d) => this.toggleDrawer(d, false));
-    if (document.querySelector('.modal-backdrop.open') || drawers.some((d) => d.classList.contains('open')) || (e.target as HTMLElement)?.tagName === 'INPUT') return;
+    if (e.key === 'Escape') this.openRules(false);
+    if (document.querySelector('.modal-backdrop.open') || this.drawer.classList.contains('open') || (e.target as HTMLElement)?.tagName === 'INPUT') return;
     if (e.key === ' ' || e.key === 'Enter') {
       if (!this.humanActor() || this.busy) return;
       if (this.s.phase === 'roll') {
@@ -662,21 +578,22 @@ export class GameApp {
   }
 
   private async playEvent(e: GameEvent) {
-    const fast = this.prefs.speed === 'turbo';
+    const fast = this.speed === 'turbo';
     switch (e.type) {
       case 'log':
         this.appendLog(e.text);
         break;
       case 'turn': {
         const p = this.game.player(e.player);
+        this.pinnedSelection = false;
         this.renderChips();
         this.renderControls();
-        this.renderNext();
+        this.renderStrip();
         this.view.showRange = false;
         const card = el('div', 'turn-card', `<div class="tc" style="--pc:${p.color}">${icon(p, 44)}<span>${escapeHtml(p.name)}'s turn</span></div>`);
         play('turn');
-        await this.scene.handoff(e.player, fast ? null : card, fast ? 'instant' : this.prefs.handoff);
-        this.view.selected = p.pos;
+        await this.scene.handoff(e.player, fast ? null : card);
+        this.select(p.pos);
         break;
       }
       case 'roll':
@@ -689,7 +606,7 @@ export class GameApp {
         play('step');
         if (e.jump) await this.scene.jump(e.player, target);
         else await this.scene.walk(e.player, e.path, this.t.step);
-        this.view.selected = target;
+        if (!this.pinnedSelection) this.select(target);
         this.renderMinimap();
         break;
       }
@@ -797,7 +714,7 @@ export class GameApp {
   private async showCard(id: string, pid: number) {
     const card = CARD_BY_ID[id], p = this.game.player(pid);
     play('card');
-    if (this.prefs.speed === 'turbo' && p.ai) {
+    if (this.speed === 'turbo' && p.ai) {
       toast(`${card.deck === 'fortune' ? '🔮' : '💼'} <b>${escapeHtml(p.name)}</b>: ${escapeHtml(card.title)}`);
       return;
     }
@@ -996,7 +913,7 @@ export class GameApp {
     m.body.querySelectorAll<HTMLElement>('.pf-item').forEach((n) =>
       n.addEventListener('click', () => {
         m.close();
-        this.openPlace(Number(n.dataset.tile));
+        this.select(Number(n.dataset.tile), true);
       }),
     );
   }
@@ -1144,6 +1061,31 @@ export class GameApp {
   }
 
   // ------------------------------------------------------------------ menus
+
+  private openMenu() {
+    const m = openModal({ title: 'Menu', cls: 'menu-modal' });
+    const list = el('div', 'menu-list');
+    list.append(
+      button('▶ Resume', 'primary', () => m.close()),
+      button('🏁 End game now (richest wins)', 'ghost', () => {
+        m.close();
+        void this.confirm('End the game now? The player with the highest net worth wins.', 'End game').then((ok) => {
+          if (!ok) return;
+          this.game.forfeitToWorth();
+          void this.flush().then(() => {
+            this.render();
+            this.save();
+          });
+        });
+      }),
+      button('🏠 Main menu', 'ghost', () => {
+        m.close();
+        this.exit();
+      }),
+      el('p', 'muted small center', 'Your game is saved automatically.'),
+    );
+    m.body.appendChild(list);
+  }
 
   private showGameOver() {
     const s = this.s;

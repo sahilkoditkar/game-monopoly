@@ -1,6 +1,19 @@
 import { GROUPS, JAIL_INDEX, TILES } from '../game/board';
+import type { GameState } from '../game/types';
 import { drawPiece, pieceKind, shade } from './pieces';
-import { withTurnCard, type GameScene, type HandoffMode, type SceneView } from './scene';
+
+/** Live data the scene draws from; the app mutates it. */
+export interface SceneView {
+  state: GameState;
+  /** Unwrapped positions so pieces can drive past the Launch Pad without rewinding. */
+  disp: number[];
+  follow: number;
+  selected: number;
+  moving: number | null;
+  showRange: boolean;
+  rentOf: (i: number) => number;
+  onSelect: (i: number) => void;
+}
 
 const EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const P2D6: Record<number, number> = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
@@ -76,7 +89,7 @@ function blend(a: District, b: District, f: number) {
 }
 type Look = ReturnType<typeof blend>;
 
-export class StreetScene implements GameScene {
+export class StreetScene {
   readonly canvas = document.createElement('canvas');
   speed = 1;
   private g!: CanvasRenderingContext2D;
@@ -176,23 +189,26 @@ export class StreetScene implements GameScene {
     v.moving = null;
   }
 
-  /** Turn hand-off: optionally pull back, glide to the next player with their card, drop back in. */
-  async handoff(pid: number, card: HTMLElement | null, mode: HandoffMode) {
+  /** Turn hand-off: pull back, glide to the next player with their card, drop back in. */
+  async handoff(pid: number, card: HTMLElement | null) {
     if (pid === this.view.follow) return;
-    const to = () => this.nearest(this.view.disp[pid] + 0.5) + this.lot() * 0.15;
-    if (mode === 'instant') {
-      this.view.follow = pid;
-      this.cam.x = to();
-      return;
-    }
+    this.view.showRange = false;
     this.hold = true;
-    if (mode === 'zoom') await this.tween(420, (k) => (this.cam.z = 1 - 0.58 * ease(k)));
-    await withTurnCard(this.host, card, this.speed, async () => {
-      const from = this.cam.x, target = to();
-      await this.tween(mode === 'zoom' ? 700 : 550, (k) => (this.cam.x = from + (target - from) * ease(k)));
-      this.view.follow = pid;
-    });
-    if (mode === 'zoom') await this.tween(420, (k) => (this.cam.z = 0.42 + 0.58 * ease(k)));
+    await this.tween(420, (k) => (this.cam.z = 1 - 0.58 * ease(k)));
+    let shown: Animation | null = null;
+    if (card) {
+      this.host.appendChild(card);
+      shown = card.animate([{ transform: 'translateY(30px) scale(.8)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 320 * this.speed, easing: 'cubic-bezier(.2,.9,.3,1.2)', fill: 'forwards' });
+    }
+    const from = this.cam.x, to = this.nearest(this.view.disp[pid] + 0.5) + this.lot() * 0.15;
+    await this.tween(700, (k) => (this.cam.x = from + (to - from) * ease(k)));
+    this.view.follow = pid;
+    if (card) {
+      await shown?.finished.catch(() => {});
+      await card.animate([{ opacity: 1 }, { transform: 'translateY(-20px) scale(.9)', opacity: 0 }], { duration: 260 * this.speed, easing: 'ease-in', fill: 'forwards' }).finished.catch(() => {});
+      card.remove();
+    }
+    await this.tween(420, (k) => (this.cam.z = 0.42 + 0.58 * ease(k)));
     this.hold = false;
   }
 
