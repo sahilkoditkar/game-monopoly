@@ -9,8 +9,12 @@ export interface ModalHandle {
   closed: Promise<void>;
 }
 
-/** Opens a modal. `dismissable` lets the backdrop and the X button close it. */
-export function openModal(opts: { title?: string; cls?: string; dismissable?: boolean; html?: string } = {}): ModalHandle {
+/**
+ * Opens a modal. `dismissable` lets the backdrop and the X button close it.
+ * `peek` adds a "View board" button that hides the dialog until the player taps
+ * "Back to <peek>", so decisions can be made while looking at the board.
+ */
+export function openModal(opts: { title?: string; cls?: string; dismissable?: boolean; html?: string; peek?: string } = {}): ModalHandle {
   const root = el('div', `modal-backdrop ${opts.cls ?? ''}`);
   const panel = el('div', 'modal');
   const body = el('div', 'modal-body');
@@ -26,6 +30,26 @@ export function openModal(opts: { title?: string; cls?: string; dismissable?: bo
   }
   if (opts.html) body.innerHTML = opts.html;
   panel.appendChild(body);
+  let back: HTMLElement | null = null;
+  const unpeek = () => {
+    root.classList.remove('peeking');
+    back?.remove();
+    back = null;
+  };
+  if (opts.peek) {
+    const peek = el('button', 'btn ghost small peek-btn', '👀 View board');
+    peek.setAttribute('aria-label', 'Hide this dialog to look at the board');
+    peek.addEventListener('click', () => {
+      root.classList.add('peeking');
+      back = el('button', 'btn gold peek-back', `↩ Back to ${escapeHtml(opts.peek!)}`);
+      back.addEventListener('click', unpeek);
+      document.body.appendChild(back);
+      back.focus();
+    });
+    const head = panel.querySelector('.modal-head');
+    if (head) head.insertBefore(peek, head.querySelector('.modal-x'));
+    else panel.appendChild(el('div', 'modal-foot')).appendChild(peek);
+  }
   root.appendChild(panel);
   document.body.appendChild(root);
   requestAnimationFrame(() => root.classList.add('open'));
@@ -36,6 +60,7 @@ export function openModal(opts: { title?: string; cls?: string; dismissable?: bo
   const close = () => {
     if (done) return;
     done = true;
+    unpeek();
     root.classList.remove('open');
     root.classList.add('closing');
     document.removeEventListener('keydown', onKey);

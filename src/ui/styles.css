@@ -2050,3 +2050,37 @@ select {
 .color-pick button.on {
   box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--sw);
 }
+
+/* View board: hide a dialog to look at the board, then come back */
+.modal-backdrop.peeking {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+.modal-head h2 {
+  flex: 1;
+}
+.modal-head .peek-btn {
+  margin-right: 8px;
+}
+.modal-foot {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+.peek-back {
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 130;
+  font-size: 1.05rem;
+  padding: 0.8em 1.5em;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: peekIn 0.3s cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+@keyframes peekIn {
+  from {
+    transform: translate(-50%, 20px);
+    opacity: 0;
+  }
+}

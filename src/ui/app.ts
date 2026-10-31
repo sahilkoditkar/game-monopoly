@@ -618,7 +618,7 @@ export class GameApp {
       toast(`${card.deck === 'fortune' ? '🔮' : '💼'} <b>${escapeHtml(p.name)}</b>: ${escapeHtml(card.title)}`);
       return;
     }
-    const m = openModal({ cls: 'card-modal', dismissable: false });
+    const m = openModal({ cls: 'card-modal', dismissable: false, peek: 'card' });
     const flip = el('div', `game-card ${card.deck}`);
     flip.innerHTML = `
       <div class="card-face card-back"><div class="card-back-icon">${card.deck === 'fortune' ? '🔮' : '💼'}</div><div>${card.deck === 'fortune' ? 'FORTUNE' : 'TREASURY'}</div></div>
@@ -661,6 +661,8 @@ export class GameApp {
     if (this.phaseModal) {
       if (force && !document.body.contains(this.phaseModal.handle.root)) this.phaseModal = null;
       else {
+        // "View offer" also brings back a dialog the player hid to look at the board.
+        if (force && this.phaseModal.handle.root.classList.contains('peeking')) document.querySelector<HTMLElement>('.peek-back')?.click();
         this.phaseModal.update?.();
         return;
       }
@@ -673,7 +675,7 @@ export class GameApp {
   private openBuy(key: string) {
     const p = this.game.cur;
     const tile = TILES[p.pos];
-    const m = openModal({ title: 'For sale', cls: 'buy-modal', dismissable: false });
+    const m = openModal({ title: 'For sale', cls: 'buy-modal', dismissable: false, peek: 'decision' });
     const update = () => {
       m.body.innerHTML = '';
       m.body.appendChild(deedCard(this.s, p.pos));
@@ -693,7 +695,7 @@ export class GameApp {
   }
 
   private openAuction(key: string) {
-    const m = openModal({ title: '🔨 Auction', cls: 'auction-modal', dismissable: false });
+    const m = openModal({ title: '🔨 Auction', cls: 'auction-modal', dismissable: false, peek: 'auction' });
     let draft = 0;
     const update = () => {
       const a = this.s.auction;
@@ -748,7 +750,7 @@ export class GameApp {
   }
 
   private openDebt(key: string) {
-    const m = openModal({ title: '⚠️ Not enough cash', cls: 'debt-modal', dismissable: false });
+    const m = openModal({ title: '⚠️ Not enough cash', cls: 'debt-modal', dismissable: false, peek: 'decision' });
     const update = () => {
       const d = this.s.debts[0];
       if (!d) return;
@@ -804,7 +806,7 @@ export class GameApp {
 
   private openManage(pid: number) {
     const p = this.game.player(pid);
-    const m = openModal({ title: `🏗️ ${escapeHtml(p.name)}'s properties`, cls: 'manage-modal' });
+    const m = openModal({ title: `🏗️ ${escapeHtml(p.name)}'s properties`, cls: 'manage-modal', peek: 'properties' });
     const update = () => {
       const owned = this.game.ownedBy(pid);
       const can = this.game.canManage(pid) && !this.busy;
@@ -942,7 +944,7 @@ export class GameApp {
     return new Promise((resolve) => {
       const from = this.game.player(offer.from);
       const to = this.game.player(offer.to);
-      const m = openModal({ title: '🤝 Trade offer', cls: 'trade-modal', dismissable: false });
+      const m = openModal({ title: '🤝 Trade offer', cls: 'trade-modal', dismissable: false, peek: 'trade offer' });
       play('card');
       m.body.innerHTML = `<p class="center">${title}</p>
         <div class="trade-review">${this.sideHtml(offer.give, from)}<div class="swap">⇄</div>${this.sideHtml(offer.get, to)}</div>
@@ -972,7 +974,7 @@ export class GameApp {
     const empty = (): TradeSide => ({ cash: 0, tiles: [], jailCards: 0 });
     let give = empty();
     let get = empty();
-    const m = openModal({ title: '🤝 Trade', cls: 'trade-modal' });
+    const m = openModal({ title: '🤝 Trade', cls: 'trade-modal', peek: 'trade' });
 
     const column = (owner: Player, side: TradeSide, label: string) => {
       const col = el('div', 'tcol');
