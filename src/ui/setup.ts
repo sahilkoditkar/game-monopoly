@@ -2,13 +2,14 @@ import type { Difficulty, PlayerConfig, Settings } from '../game/types';
 import { el, escapeHtml } from './fx';
 import { play, unlockAudio } from './sound';
 
-export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑', '🐶'];
+export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑', '🐶', '🦊', '🐼', '🐸', '🦄', '🐙', '🍕', '⚽', '🎸'];
 /**
- * Player colours to pick from. The 8 city sets already use brown, light blue, pink, orange,
- * red, yellow, green and dark blue, so players get the colours left over: white, violet,
- * lime, dark teal and graphite. The first four are the defaults for seats 1-4.
+ * Player colours. Each must (1) read clearly on the cream tiles (contrast at least 3.5:1),
+ * (2) look different from all 8 city colours, and (3) look different from the other players
+ * (CIEDE2000 colour difference of 22+ for both). The bright hues are taken by the cities,
+ * so these are deep tones: burgundy, deep teal, olive, charcoal and forest green.
  */
-export const COLORS = ['#f8f9fa', '#9c36b5', '#a9e34b', '#0b7285', '#5c636a'];
+export const COLORS = ['#8d354b', '#2a6f6b', '#8d8435', '#212529', '#256105'];
 const AI_NAMES = ['Ava', 'Bolt', 'Cleo', 'Dex', 'Echo', 'Fizz'];
 
 interface Seat {
@@ -129,7 +130,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
       const row = el('div', 'seat');
       row.style.setProperty('--pc', s.color);
       row.innerHTML = `
-        <button class="seat-token" title="Change token">${s.token}</button>
+        <button class="seat-token" title="Choose token" aria-haspopup="true" aria-expanded="false">${s.token}</button>
         <input class="seat-name" maxlength="14" value="${escapeHtml(s.name)}" aria-label="Player ${i + 1} name"/>
         <div class="seg small type-seg">
           <button class="${!s.ai ? 'on' : ''}" data-ai="0">👤 Human</button>
@@ -142,6 +143,10 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
                 .join('')}</select>`
             : ''
         }
+        <div class="token-pick" role="group" aria-label="Player ${i + 1} token" hidden>${TOKENS.map((t) => {
+          const taken = seats.slice(0, count).some((x) => x !== s && x.token === t);
+          return `<button data-token="${t}" class="${t === s.token ? 'on' : ''}" ${taken ? 'disabled title="Taken by another player"' : ''} aria-pressed="${t === s.token}">${t}</button>`;
+        }).join('')}</div>
         <div class="color-pick" role="group" aria-label="Player ${i + 1} colour">${COLORS.map((c) => `<button class="${c === s.color ? 'on' : ''}" data-color="${c}" style="--sw:${c}" aria-label="Colour ${c}" aria-pressed="${c === s.color}"></button>`).join('')}</div>`;
       row.querySelectorAll<HTMLButtonElement>('[data-color]').forEach((b) =>
         b.addEventListener('click', () => {
@@ -153,15 +158,21 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           draw();
         }),
       );
-      row.querySelector('.seat-token')!.addEventListener('click', () => {
-        const used = new Set(seats.slice(0, count).map((x) => x.token));
-        let k = TOKENS.indexOf(s.token);
-        do k = (k + 1) % TOKENS.length;
-        while (used.has(TOKENS[k]));
-        s.token = TOKENS[k];
+      // Tapping the token opens a grid of every emoji; ones other players use are greyed out.
+      const tokenBtn = row.querySelector<HTMLButtonElement>('.seat-token')!;
+      const grid = row.querySelector<HTMLElement>('.token-pick')!;
+      tokenBtn.addEventListener('click', () => {
+        grid.hidden = !grid.hidden;
+        tokenBtn.setAttribute('aria-expanded', String(!grid.hidden));
         play('click');
-        draw();
       });
+      grid.querySelectorAll<HTMLButtonElement>('[data-token]').forEach((b) =>
+        b.addEventListener('click', () => {
+          s.token = b.dataset.token!;
+          play('click');
+          draw();
+        }),
+      );
       row.querySelector<HTMLInputElement>('.seat-name')!.addEventListener('input', (e) => {
         s.name = (e.target as HTMLInputElement).value;
       });
