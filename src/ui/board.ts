@@ -1,6 +1,7 @@
 import { GROUPS, JAIL_INDEX, TILES } from '../game/board';
 import type { GameState } from '../game/types';
-import { el, escapeHtml, sleep } from './fx';
+import { localize } from '../game/editions';
+import { el, escapeHtml, money, sleep } from './fx';
 import { play } from './sound';
 
 /** Corner size as a fraction of the board edge. */
@@ -66,11 +67,11 @@ export class BoardView {
       if (t.kind === 'jail') inner.appendChild(el('div', 'corner-sub', 'Just visiting'));
       if (t.kind === 'start') inner.appendChild(el('div', 'corner-sub', 'Collect salary'));
       if (t.kind === 'lounge') inner.appendChild(el('div', 'corner-sub jackpot-label', ''));
-      if (t.kind === 'gotojail') inner.appendChild(el('div', 'corner-sub', 'Go to Lockup'));
+      if (t.kind === 'gotojail') inner.appendChild(el('div', 'corner-sub', escapeHtml(localize('Go to Lockup'))));
     } else {
       inner.appendChild(el('div', 'tile-name', escapeHtml(t.short)));
       inner.appendChild(el('div', 'tile-icon', t.icon));
-      const label = t.price ? `$${t.price}` : t.tax ? `Pay $${t.tax}` : '';
+      const label = t.price ? money(t.price) : t.tax ? `Pay ${money(t.tax)}` : '';
       inner.appendChild(el('div', 'tile-price', label));
     }
     inner.appendChild(el('div', 'owner-bar'));
@@ -253,7 +254,7 @@ export class BoardView {
       }
     }
     const jp = this.root.querySelector('.jackpot-label');
-    if (jp) jp.textContent = state.settings.jackpot ? `Jackpot $${state.jackpot}` : 'Free stop';
+    if (jp) jp.textContent = state.settings.jackpot ? `Jackpot ${money(state.jackpot)}` : 'Free stop';
     if (changed !== undefined) {
       const tile = this.tiles[changed];
       tile.classList.remove('flash');

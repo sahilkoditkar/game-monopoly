@@ -1,3 +1,4 @@
+import { formatMoney } from '../game/editions';
 /** Visual effects: confetti, floating text, flying coins. */
 
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -13,7 +14,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   return e;
 }
 
-export const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+export const money = (n: number) => formatMoney(n);
 
 export function escapeHtml(s: string) {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);

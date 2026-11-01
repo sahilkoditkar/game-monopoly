@@ -302,6 +302,20 @@ select {
 .count-seg {
   align-self: flex-start;
 }
+.edition-seg {
+  display: flex;
+  flex-wrap: nowrap;
+}
+.edition-seg button {
+  flex: 1;
+  padding: 0.55em 0.4em;
+  white-space: nowrap;
+}
+.edition-note {
+  margin: -4px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
 .seats {
   display: flex;
   flex-direction: column;

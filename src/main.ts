@@ -1,9 +1,10 @@
 import './ui/styles.css';
+import { applyEdition } from './game/editions';
 import { Game } from './game/engine';
 import type { PlayerConfig, Settings } from './game/types';
 import { GameApp, clearSave, loadSave } from './ui/app';
 import { openModal } from './ui/modal';
-import { RULES_HTML, renderSetup, type SetupResult } from './ui/setup';
+import { renderSetup, rulesHtml, type SetupResult } from './ui/setup';
 
 const host = document.getElementById('app')!;
 let app: GameApp | null = null;
@@ -24,6 +25,7 @@ function rematchConfig(g: Game): SetupResult {
 function launch(game: Game, mem: ConstructorParameters<typeof GameApp>[2] = []) {
   app?.destroy();
   current = game;
+  applyEdition(game.state.settings.edition);
   app = new GameApp(host, game, mem, (again) => {
     if (again && current) startNew(rematchConfig(current));
     else showSetup();
@@ -46,7 +48,7 @@ function showSetup() {
       if (save) launch(new Game(save.state), save.mem);
       else showSetup();
     },
-    onRules: () => openModal({ title: 'How to play', html: RULES_HTML, cls: 'rules-modal' }),
+    onRules: () => openModal({ title: 'How to play', html: rulesHtml(), cls: 'rules-modal' }),
   });
 }
 

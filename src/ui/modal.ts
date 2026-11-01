@@ -1,5 +1,6 @@
 import { GROUPS, TILES, TRANSIT_RENTS, houseCost, mortgageValue, unmortgageCost } from '../game/board';
 import type { GameState } from '../game/types';
+import { capitalize, localize } from '../game/editions';
 import { el, escapeHtml, money } from './fx';
 
 export interface ModalHandle {
@@ -110,7 +111,7 @@ export function deedCard(state: GameState, i: number): HTMLElement {
     rows.push(row('With 🏨 hotel', r[5], 5));
     rows.push(`<tr class="sep"><td>House / hotel cost</td><td>${money(houseCost(i))}</td></tr>`);
   } else if (t.kind === 'transit') {
-    TRANSIT_RENTS.forEach((v, k) => rows.push(`<tr><td>${k + 1} Skyport${k ? 's' : ''} owned</td><td>${money(v)}</td></tr>`));
+    TRANSIT_RENTS.forEach((v, k) => rows.push(`<tr><td>${k + 1} ${localize(k ? 'Skyports' : 'Skyport')} owned</td><td>${money(v)}</td></tr>`));
   } else if (t.kind === 'utility') {
     rows.push(`<tr><td>One utility owned</td><td>4× dice</td></tr>`);
     rows.push(`<tr><td>Both utilities owned</td><td>10× dice</td></tr>`);
@@ -121,7 +122,7 @@ export function deedCard(state: GameState, i: number): HTMLElement {
   card.innerHTML = `
     <div class="deed-head">
       <div class="deed-icon">${t.icon}</div>
-      <div class="deed-kicker">${t.group ? escapeHtml(GROUPS[t.group].name) : t.kind === 'transit' ? 'Skyport' : 'Utility'}</div>
+      <div class="deed-kicker">${t.group ? escapeHtml(GROUPS[t.group].name) : t.kind === 'transit' ? capitalize(localize('Skyport')) : 'Utility'}</div>
       <div class="deed-title">${escapeHtml(t.name)}</div>
     </div>
     <div class="deed-price">Price <b>${money(t.price!)}</b></div>
