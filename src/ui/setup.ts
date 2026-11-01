@@ -1,5 +1,6 @@
 import type { Difficulty, PlayerConfig, Settings } from '../game/types';
-import { el, escapeHtml } from './fx';
+import { EDITIONS, applyEdition, currentEdition, localize, type EditionId } from '../game/editions';
+import { el, escapeHtml, money } from './fx';
 import { play, unlockAudio } from './sound';
 
 export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑', '🐶', '🦊', '🐼', '🐸', '🦄', '🐙', '🍕', '⚽', '🎸'];
@@ -75,26 +76,34 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
     roundLimit: 0,
     ...(saved?.settings ?? {}),
   };
+  if (!(settings.edition && settings.edition in EDITIONS)) settings.edition = 'world';
+  applyEdition(settings.edition);
 
   const root = el('div', 'setup');
   host.innerHTML = '';
   host.appendChild(root);
 
   const draw = () => {
+    const rulesOpen = root.querySelector('details')?.open ?? false;
     root.innerHTML = `
       <div class="setup-bg">${skylineSvg}<div class="stars"></div></div>
       <div class="setup-card">
         <div class="logo"><span class="logo-sky">SKYLINE</span><span class="logo-ty">TYCOON</span></div>
-        <p class="tagline">Buy world cities, build skyscrapers, and bankrupt your rivals.</p>
+        <p class="tagline">${escapeHtml(currentEdition().blurb)}</p>
         <div class="setup-actions-top"></div>
         <div class="section-title">Players</div>
         <div class="seg count-seg">${[2, 3, 4].map((n) => `<button class="${n === count ? 'on' : ''}" data-count="${n}">${n}</button>`).join('')}</div>
         <div class="seats"></div>
-        <details class="rules-box">
+        <div class="section-title">Board</div>
+        <div class="seg edition-seg">${Object.values(EDITIONS)
+          .map((e) => `<button class="${e.id === settings.edition ? 'on' : ''}" data-edition="${e.id}">${e.label}</button>`)
+          .join('')}</div>
+        <p class="edition-note">Same prices and rules, only the names change · ${currentEdition().currency}</p>
+        <details class="rules-box" ${rulesOpen ? 'open' : ''}>
           <summary>House rules</summary>
           <div class="opts">
             <label>Starting cash
-              <select data-opt="startingCash">${[1000, 1500, 2000, 2500].map((v) => `<option value="${v}" ${v === settings.startingCash ? 'selected' : ''}>$${v}</option>`).join('')}</select>
+              <select data-opt="startingCash">${[1000, 1500, 2000, 2500].map((v) => `<option value="${v}" ${v === settings.startingCash ? 'selected' : ''}>${money(v)}</option>`).join('')}</select>
             </label>
             <label>Game length
               <select data-opt="roundLimit">${[
@@ -107,7 +116,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
                 .join('')}</select>
             </label>
             <label class="switch"><input type="checkbox" data-opt="auctions" ${settings.auctions ? 'checked' : ''}/><span></span>Auction properties nobody buys</label>
-            <label class="switch"><input type="checkbox" data-opt="jackpot" ${settings.jackpot ? 'checked' : ''}/><span></span>Taxes and fines feed the Sky Lounge jackpot</label>
+            <label class="switch"><input type="checkbox" data-opt="jackpot" ${settings.jackpot ? 'checked' : ''}/><span></span>Taxes and fines feed the ${escapeHtml(localize('Sky Lounge'))} jackpot</label>
           </div>
         </details>
         <button class="btn primary big start-btn">Start game</button>
@@ -211,6 +220,14 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
         else (settings[key] as number) = Number(inp.value);
       }),
     );
+    root.querySelectorAll<HTMLButtonElement>('.edition-seg button').forEach((b) =>
+      b.addEventListener('click', () => {
+        settings.edition = b.dataset.edition as EditionId;
+        applyEdition(settings.edition);
+        play('click');
+        draw();
+      }),
+    );
     root.querySelector('.rules-btn')!.addEventListener('click', () => opts.onRules());
     root.querySelector('.start-btn')!.addEventListener('click', () => {
       unlockAudio();
@@ -234,7 +251,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
   draw();
 }
 
-export const RULES_HTML = `
+const RULES_HTML = `
 <div class="rules">
   <p><b>Goal:</b> be the last tycoon standing, or the richest when the round limit is reached.</p>
   <ul>
@@ -251,3 +268,6 @@ export const RULES_HTML = `
   </ul>
   <p class="muted">Tip: tap any tile to see its deed. Your game saves automatically, so you can close the tab and continue later.</p>
 </div>`;
+
+/** The rules, worded for the current board edition. */
+export const rulesHtml = () => localize(RULES_HTML);

@@ -11,6 +11,7 @@ An original property-trading board game for **2–4 players** that runs in the b
   - 40 tiles: 22 world cities in 8 colour sets, 4 Skyports and 2 utilities.
   - Fortune and Treasury card decks, City Tax and Yacht Tax.
   - The Lockup and the Sky Lounge jackpot.
+- **Board editions:** pick **World**, **India** or **Maharashtra** on the setup screen. The India and Maharashtra boards use local cities, stations and ₹, with the same prices and rules.
 - **Full rules:**
   - Doubles roll again, and three doubles send you to Lockup.
   - Auctions for unbought properties, and a full set doubles rent.
@@ -55,6 +56,7 @@ STATS=1 npx vitest run tests/stats.test.ts
 | Path | What it does |
 |---|---|
 | `src/game/board.ts`, `cards.ts` | Board tiles, prices, rents and card decks |
+| `src/game/editions.ts` | India and Maharashtra names and currency (names only) |
 | `src/game/engine.ts` | Rules engine: phases, money, jail, building, auctions, trades, bankruptcy. It emits events for the UI. |
 | `src/game/ai.ts` | AI players: buying, bidding, building, debt handling and trades |
 | `src/ui/app.ts` | Game controller: plays events as animations and runs AI turns |

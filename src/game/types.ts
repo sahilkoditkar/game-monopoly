@@ -67,6 +67,8 @@ export interface Settings {
   jackpot: boolean;
   /** 0 = play until one player remains; otherwise the game ends after this many rounds. */
   roundLimit: number;
+  /** Board edition: only names and the currency symbol change (see editions.ts). */
+  edition?: string;
 }
 
 export interface Player {

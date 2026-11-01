@@ -1,13 +1,14 @@
 import { acceptsTrade, apply, decide, fallback, newMemory, type AiMemory } from '../game/ai';
 import { BUYABLE, GROUPS, JAIL_FINE, JAIL_INDEX, TILES, houseCost, mortgageValue, unmortgageCost } from '../game/board';
 import { CARD_BY_ID } from '../game/cards';
+import { capitalize, currentEdition, localize } from '../game/editions';
 import { Game } from '../game/engine';
 import type { GameEvent, GameState, Player, TradeOffer, TradeSide } from '../game/types';
 import { BoardView } from './board';
 import { DicePair } from './dice';
 import { centerOf, confetti, countTo, el, escapeHtml, floatText, flyCoins, money, sleep, toast } from './fx';
 import { button, deedCard, openModal, type ModalHandle } from './modal';
-import { RULES_HTML, legacyToken } from './setup';
+import { legacyToken, rulesHtml } from './setup';
 import { isMuted, play, setMuted } from './sound';
 
 type Speed = 'normal' | 'fast' | 'turbo';
@@ -167,8 +168,8 @@ export class GameApp {
     c.innerHTML = `
       <div class="center-glow"></div>
       <div class="center-logo"><span class="logo-sky">SKYLINE</span><span class="logo-ty">TYCOON</span></div>
-      <div class="deck deck-fortune"><span>🔮</span><b>Fortune</b></div>
-      <div class="deck deck-treasury"><span>💼</span><b>Treasury</b></div>`;
+      <div class="deck deck-fortune"><span>🔮</span><b>${currentEdition().decks.fortune}</b></div>
+      <div class="deck deck-treasury"><span>💼</span><b>${currentEdition().decks.treasury}</b></div>`;
     const hub = el('div', 'center-hub');
     hub.append(this.dice.root, this.statusEl, this.controlsEl);
     c.appendChild(hub);
@@ -234,11 +235,11 @@ export class GameApp {
         }
         const tr = BUYABLE.filter((i) => TILES[i].kind === 'transit' && s.props[i]?.owner === p.id).length;
         const ut = BUYABLE.filter((i) => TILES[i].kind === 'utility' && s.props[i]?.owner === p.id).length;
-        if (tr) chips.push(`<i class="gchip icon" title="Skyports">✈️${tr}</i>`);
+        if (tr) chips.push(`<i class="gchip icon" title="${capitalize(localize('Skyports'))}">${TILES[5].icon}${tr}</i>`);
         if (ut) chips.push(`<i class="gchip icon" title="Utilities">⚡${ut}</i>`);
         const badges = [
           p.ai ? `<span class="badge">AI · ${p.difficulty}</span>` : '',
-          p.inJail ? '<span class="badge warn">🔒 Lockup</span>' : '',
+          p.inJail ? `<span class="badge warn">🔒 ${escapeHtml(TILES[JAIL_INDEX].name)}</span>` : '',
           p.jailCards.length ? `<span class="badge">🎫×${p.jailCards.length}</span>` : '',
           p.bankrupt ? '<span class="badge bad">Bankrupt</span>' : '',
         ].join('');
@@ -306,7 +307,7 @@ export class GameApp {
     switch (s.phase) {
       case 'roll':
         if (cur.inJail) {
-          this.statusEl.innerHTML = `🔒 <b>${name}</b> is in Lockup (try ${cur.jailTurns + 1}/3)`;
+          this.statusEl.innerHTML = `🔒 <b>${name}</b> is in ${escapeHtml(TILES[JAIL_INDEX].name)} (try ${cur.jailTurns + 1}/3)`;
           row.appendChild(button('🎲 Roll doubles', 'primary', () => this.act(() => this.game.roll())));
           row.appendChild(button(`Pay ${money(JAIL_FINE)}`, 'gold', () => this.act(() => this.game.payJailFine()), cur.cash < JAIL_FINE));
           if (cur.jailCards.length) row.appendChild(button('🎫 Use card', 'gold', () => this.act(() => this.game.useJailCard())));
@@ -340,7 +341,7 @@ export class GameApp {
   }
 
   private appendLog(text: string) {
-    const line = el('div', 'log-line', escapeHtml(text));
+    const line = el('div', 'log-line', escapeHtml(localize(text)));
     this.logEl.prepend(line);
     while (this.logEl.childElementCount > 80) this.logEl.lastElementChild!.remove();
   }
@@ -621,9 +622,9 @@ export class GameApp {
     const m = openModal({ cls: 'card-modal', dismissable: false, peek: 'card' });
     const flip = el('div', `game-card ${card.deck}`);
     flip.innerHTML = `
-      <div class="card-face card-back"><div class="card-back-icon">${card.deck === 'fortune' ? '🔮' : '💼'}</div><div>${card.deck === 'fortune' ? 'FORTUNE' : 'TREASURY'}</div></div>
+      <div class="card-face card-back"><div class="card-back-icon">${card.deck === 'fortune' ? '🔮' : '💼'}</div><div>${currentEdition().decks[card.deck].toUpperCase()}</div></div>
       <div class="card-face card-front">
-        <div class="card-kind">${card.deck === 'fortune' ? '🔮 Fortune' : '💼 Treasury'}</div>
+        <div class="card-kind">${card.deck === 'fortune' ? '🔮' : '💼'} ${currentEdition().decks[card.deck]}</div>
         <div class="card-title">${escapeHtml(card.title)}</div>
         <div class="card-text">${escapeHtml(card.text)}</div>
         <div class="card-who" style="--pc:${p.color}">${p.token} ${escapeHtml(p.name)}</div>
@@ -758,7 +759,7 @@ export class GameApp {
       const to = d.to !== null ? this.game.player(d.to).name : 'the bank';
       const canRaise = this.game.liquidity(p.id) >= this.game.debtTotal(p.id);
       m.body.innerHTML = `
-        <p><b>${escapeHtml(p.name)}</b> owes <b>${money(d.amount)}</b> to ${escapeHtml(to)} (${escapeHtml(d.reason)}) but has only <b>${money(p.cash)}</b>.</p>
+        <p><b>${escapeHtml(p.name)}</b> owes <b>${money(d.amount)}</b> to ${escapeHtml(to)} (${escapeHtml(localize(d.reason))}) but has only <b>${money(p.cash)}</b>.</p>
         <p class="muted">Sell buildings or mortgage properties to raise ${money(d.amount - p.cash)}. The debt is paid automatically once you have the cash.</p>
         ${canRaise ? '' : '<p class="warn-text">Even selling everything won\'t cover this.</p>'}`;
       const row = el('div', 'modal-actions');
@@ -831,8 +832,8 @@ export class GameApp {
         const full = g && this.game.hasFullSet(pid, key);
         const total = g ? TILES.filter((x) => x.group === key).length : 0;
         const progress = g ? (full ? '<span class="tag good">Full set · can build</span>' : `<span class="tag">${tiles.length}/${total} owned</span>`) : '';
-        sec.innerHTML = `<div class="mg-title">${g ? escapeHtml(g.name) : key === 'transit' ? '✈️ Skyports' : '⚡ Utilities'} ${progress}</div>`;
-        if (g && !full) sec.appendChild(el('div', 'build-hint', `🔒 ${escapeHtml(this.game.buildBlocker(pid, tiles[0]) ?? '')}`));
+        sec.innerHTML = `<div class="mg-title">${g ? escapeHtml(g.name) : key === 'transit' ? `${TILES[5].icon} ${capitalize(localize('Skyports'))}` : '⚡ Utilities'} ${progress}</div>`;
+        if (g && !full) sec.appendChild(el('div', 'build-hint', `🔒 ${escapeHtml(localize(this.game.buildBlocker(pid, tiles[0]) ?? ''))}`));
         for (const t of tiles) {
           const o = this.s.props[t];
           const row = el('div', `mrow ${o.mortgaged ? 'mortgaged' : ''}`);
@@ -850,7 +851,7 @@ export class GameApp {
           row.appendChild(btns);
           sec.appendChild(row);
           const why = full && can && o.houses < 5 ? this.game.buildBlocker(pid, t) : null;
-          if (why) sec.appendChild(el('div', 'build-hint', `ℹ️ ${escapeHtml(why)}`));
+          if (why) sec.appendChild(el('div', 'build-hint', `ℹ️ ${escapeHtml(localize(why))}`));
         }
         list.appendChild(sec);
       }
@@ -889,10 +890,10 @@ export class GameApp {
         start: `Collect ${money(this.s.settings.salary)} every time you pass or land here.`,
         jail: `Just visiting, unless you were busted. Pay ${money(JAIL_FINE)}, use a card, or roll doubles to get out.`,
         lounge: this.s.settings.jackpot ? `Taxes and fines pile up here. Current jackpot: <b>${money(this.s.jackpot)}</b>.` : 'Relax. Nothing happens here.',
-        gotojail: 'Go directly to Lockup. Do not pass the Launch Pad.',
+        gotojail: localize('Go directly to Lockup. Do not pass the Launch Pad.'),
         tax: `Pay ${money(t.tax ?? 0)} to the city.`,
-        fortune: 'Draw a Fortune card.',
-        treasury: 'Draw a Treasury card.',
+        fortune: `Draw a ${currentEdition().decks.fortune} card.`,
+        treasury: `Draw a ${currentEdition().decks.treasury} card.`,
       };
       const m = openModal({ title: `${t.icon} ${escapeHtml(t.name)}`, cls: 'tile-modal' });
       m.body.innerHTML = `<p>${desc[t.kind] ?? ''}</p>`;
@@ -919,7 +920,7 @@ export class GameApp {
         const viewer = human ?? this.s.players.find((p) => !p.ai && p.id === own.owner);
         if (viewer && viewer.id === own.owner) {
           const why = this.game.buildBlocker(viewer.id, i);
-          if (why) m.body.appendChild(el('div', 'build-hint center', `🔒 ${escapeHtml(why)}`));
+          if (why) m.body.appendChild(el('div', 'build-hint center', `🔒 ${escapeHtml(localize(why))}`));
         }
       }
     };
@@ -1091,7 +1092,7 @@ export class GameApp {
     list.appendChild(
       button('📖 How to play', 'ghost', () => {
         m.close();
-        openModal({ title: 'How to play', html: RULES_HTML, cls: 'rules-modal' });
+        openModal({ title: 'How to play', html: rulesHtml(), cls: 'rules-modal' });
       }),
     );
     list.appendChild(
