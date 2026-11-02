@@ -175,8 +175,14 @@ export class GameApp {
 
     const side = el('aside', 'side');
     const logWrap = el('div', 'log-wrap');
-    logWrap.innerHTML = '<div class="log-title">Game log</div>';
+    logWrap.innerHTML = '<div class="log-title"><span>Game log</span><button class="log-more" aria-expanded="false">Show all ▾</button></div>';
     logWrap.appendChild(this.logEl);
+    const more = logWrap.querySelector<HTMLButtonElement>('.log-more')!;
+    more.addEventListener('click', () => {
+      const open = logWrap.classList.toggle('expanded');
+      more.textContent = open ? 'Show less ▴' : 'Show all ▾';
+      more.setAttribute('aria-expanded', String(open));
+    });
     side.append(this.playersEl, logWrap);
 
     stage.append(boardWrap, side, this.bannerEl);
@@ -234,7 +240,13 @@ export class GameApp {
         for (const g of Object.values(GROUPS)) {
           const tiles = TILES.filter((t) => t.group === g.id);
           const n = tiles.filter((t) => s.props[t.index]?.owner === p.id).length;
-          if (n) chips.push(`<i class="gchip ${n === tiles.length ? 'full' : ''}" style="--g:${g.color}" title="${escapeHtml(g.name)} ${n}/${tiles.length}">${n}</i>`);
+          // One mini bar per colour set: a filled cell for each city owned, glowing when complete.
+          if (n)
+            chips.push(
+              `<i class="gset ${n === tiles.length ? 'full' : ''}" style="--g:${g.color}" title="${escapeHtml(g.name)}: ${n} of ${tiles.length}">${tiles
+                .map((t) => `<b class="${s.props[t.index]?.owner === p.id ? 'on' : ''}"></b>`)
+                .join('')}</i>`,
+            );
         }
         const tr = BUYABLE.filter((i) => TILES[i].kind === 'transit' && s.props[i]?.owner === p.id).length;
         const ut = BUYABLE.filter((i) => TILES[i].kind === 'utility' && s.props[i]?.owner === p.id).length;
@@ -350,7 +362,20 @@ export class GameApp {
   }
 
   private appendLog(text: string) {
-    const line = el('div', 'log-line', escapeHtml(localize(text)));
+    text = localize(text);
+    // Lines start with the player's name: show their token in their colour instead.
+    const who = [...this.s.players].sort((a, b) => b.name.length - a.name.length).find((p) => text.startsWith(p.name));
+    let html = escapeHtml(text);
+    if (who) {
+      const rest = text.slice(who.name.length);
+      const roll = /^ rolled (\d) \+ (\d)(.*)\.$/.exec(rest);
+      html = roll
+        ? `<b>${escapeHtml(who.name)}</b> <span class="log-dice">🎲 ${roll[1]} + ${roll[2]}${escapeHtml(roll[3])}</span>`
+        : `<b>${escapeHtml(who.name)}</b>${escapeHtml(rest)}`;
+      html = `<span class="log-tok">${who.token}</span><span>${html}</span>`;
+    }
+    const line = el('div', `log-line ${who ? 'has-who' : ''}`, html);
+    if (who) line.style.setProperty('--pc', who.color);
     this.logEl.prepend(line);
     while (this.logEl.childElementCount > 80) this.logEl.lastElementChild!.remove();
   }
@@ -490,6 +515,7 @@ export class GameApp {
         const p = this.game.player(e.player);
         this.renderPlayers();
         this.board.setTokens(s);
+        if (this.logEl.firstElementChild && !this.logEl.firstElementChild.classList.contains('log-sep')) this.logEl.prepend(el('div', 'log-sep'));
         this.bannerEl.innerHTML = `<div class="banner-inner" style="--pc:${p.color}"><span class="banner-token">${p.token}</span><span>${escapeHtml(p.name)}'s turn</span></div>`;
         this.bannerEl.classList.remove('show');
         void this.bannerEl.offsetWidth;
@@ -508,6 +534,9 @@ export class GameApp {
         const target = e.path[e.path.length - 1];
         await this.board.moveToken(e.player, e.path, e.path.length > 14 ? this.t.step * 0.6 : this.t.step, e.jump, !!e.jump && target === JAIL_INDEX);
         this.board.highlight(target);
+        const mover = this.game.player(e.player);
+        const land = TILES[target];
+        this.statusEl.innerHTML = `${mover.token} <b>${escapeHtml(mover.name)}</b> → ${land.icon} <b>${escapeHtml(land.name)}</b>`;
         break;
       }
       case 'money': {
@@ -820,6 +849,7 @@ export class GameApp {
   private openManage(pid: number) {
     const p = this.game.player(pid);
     const m = openModal({ title: `🏗️ ${escapeHtml(p.name)}'s properties`, cls: 'manage-modal', peek: 'properties' });
+    this.markOwner(m, pid);
     const update = () => {
       const owned = this.game.ownedBy(pid);
       const can = this.game.canManage(pid) && !this.busy;
@@ -876,10 +906,17 @@ export class GameApp {
     this.registerLive(m, update);
   }
 
+  /** Highlights a player's tiles on the board while their property list is open. */
+  private markOwner(m: ModalHandle, pid: number) {
+    this.board.markOwner(this.s, pid);
+    void m.closed.then(() => this.board.markOwner(this.s, null));
+  }
+
   private openPortfolio(pid: number) {
     const p = this.game.player(pid);
     if (!p.ai && this.game.canManage(pid)) return this.openManage(pid);
-    const m = openModal({ title: `${p.token} ${escapeHtml(p.name)}`, cls: 'manage-modal' });
+    const m = openModal({ title: `${p.token} ${escapeHtml(p.name)}`, cls: 'manage-modal', peek: 'properties' });
+    this.markOwner(m, pid);
     const owned = this.game.ownedBy(pid);
     m.body.innerHTML = `
       <div class="manage-head">Cash <b>${money(p.cash)}</b> · Net worth <b>${money(this.game.netWorth(pid))}</b></div>
