@@ -168,6 +168,8 @@ export function toast(html: string, cls = '', ms = 2600) {
   let host = document.querySelector('.toasts');
   if (!host) {
     host = el('div', 'toasts');
+    host.setAttribute('role', 'status');
+    host.setAttribute('aria-live', 'polite');
     document.body.appendChild(host);
   }
   const t = el('div', `toast ${cls}`, html);

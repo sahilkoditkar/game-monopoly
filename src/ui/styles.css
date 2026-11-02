@@ -2432,3 +2432,148 @@ select {
 .board.compact .center-hub {
   margin-top: 14%;
 }
+
+/* ------------------------------------------------------------ usability pass C */
+
+/* Where the next roll can land: a warm tint, stronger for likelier totals (7 is brightest). */
+.tile.reach::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(255, 196, 61, calc(0.08 + var(--reach, 0) * 0.3));
+  box-shadow: inset 0 0 0 1px rgba(255, 170, 0, calc(0.2 + var(--reach, 0) * 0.5));
+  animation: reachIn 0.4s ease-out;
+}
+@keyframes reachIn {
+  from {
+    opacity: 0;
+  }
+}
+
+/* "You can build on ..." nudge under the status line */
+.ctrl-hint {
+  margin-top: 4px;
+  font-size: 0.85em;
+  color: #ffe08a;
+}
+
+/* One-time tips card */
+.tip-card {
+  position: fixed;
+  z-index: 95;
+  left: 16px;
+  bottom: 16px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #232a78, #171c55);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), inset 0 0 0 1px var(--line);
+  font-size: 0.9rem;
+  animation: peekIn 0.4s cubic-bezier(0.2, 1.3, 0.4, 1);
+  transition: opacity 0.3s, transform 0.3s;
+}
+.tip-card.gone {
+  opacity: 0;
+  transform: translateY(20px);
+}
+.tip-card .tip-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.tip-card ul {
+  margin: 0 0 10px;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tip-card .btn {
+  width: 100%;
+}
+@media (max-width: 600px) {
+  .tip-card {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+  }
+}
+
+/* Wide screens: decision dialogs dock beside the board, which stays visible and clickable. */
+body.docked .modal-backdrop.buy-modal,
+body.docked .modal-backdrop.auction-modal,
+body.docked .modal-backdrop.debt-modal {
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: none;
+  place-items: start end;
+  padding: 64px 12px 12px;
+}
+body.docked .buy-modal .modal,
+body.docked .auction-modal .modal,
+body.docked .debt-modal .modal {
+  pointer-events: auto;
+  width: var(--dock-w, 420px);
+  max-height: calc(100dvh - 76px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(255, 209, 102, 0.55);
+}
+body.docked .buy-modal .peek-btn,
+body.docked .auction-modal .peek-btn,
+body.docked .debt-modal .peek-btn {
+  display: none;
+}
+body.docked .auction-modal .auction-grid {
+  grid-template-columns: 1fr;
+}
+
+/* Phones held sideways: compact side panel so the board gets the room. */
+.game.short .topbar {
+  height: 44px;
+}
+.game.short .stage {
+  height: calc(100dvh - 44px);
+}
+.game.short .side {
+  gap: 6px;
+}
+.game.short .pcard {
+  padding: 5px 8px;
+  gap: 2px 8px;
+}
+.game.short .pcard::before {
+  width: 40px;
+}
+.game.short .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 0.95rem;
+}
+.game.short .pname,
+.game.short .pcash {
+  font-size: 0.9rem;
+}
+.game.short .badge {
+  display: none;
+}
+.game.short .log-wrap {
+  padding: 6px 10px;
+}
+/* Landscape: the tips sit over the side panel, never over the board. */
+.game.landscape .tip-card {
+  left: auto;
+  right: 16px;
+  width: min(360px, calc(var(--side-w) + 16px));
+}
+.game.short .tip-card {
+  right: 8px;
+  bottom: 8px;
+  padding: 10px 12px;
+  font-size: 0.78rem;
+}
+.game.short .tip-card ul {
+  gap: 1px;
+  margin-bottom: 6px;
+}
