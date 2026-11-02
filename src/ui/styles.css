@@ -2278,3 +2278,157 @@ select {
 .float-text {
   z-index: 90;
 }
+
+/* ------------------------------------------------------------ usability pass B */
+
+/* Player cards: one mini bar per colour set, a filled cell per city owned. */
+.gset {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.gset b {
+  width: 8px;
+  height: 13px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.gset b.on {
+  background: var(--g);
+}
+.gset.full {
+  box-shadow: 0 0 0 2px var(--g), 0 0 10px var(--g);
+}
+.pprops {
+  align-items: center;
+}
+
+/* Owned tiles: a clear frame in the owner's colour, not just a thin strip. */
+.tile.owned {
+  box-shadow: inset 0 0 0 3px var(--owner);
+}
+.board.compact .tile.owned {
+  box-shadow: inset 0 0 0 2px var(--owner);
+}
+.tile.owned .owner-bar {
+  height: 26%;
+}
+.tile.focus {
+  box-shadow: inset 0 0 0 3px var(--gold);
+}
+
+/* While a player's property list is open, their tiles light up and the rest dim. */
+.board.marking .tile:not(.mine) {
+  filter: brightness(0.45) saturate(0.4);
+}
+.board.marking .tile.mine {
+  z-index: 1;
+  animation: mine 1.4s ease-in-out infinite;
+}
+@keyframes mine {
+  50% {
+    filter: brightness(1.15);
+  }
+}
+
+/* Phones: show city names again (smaller icon, compact price). Pinch-zoom works too. */
+.board.compact .tile-name {
+  display: block;
+  font-size: calc(var(--short) * 0.25);
+  letter-spacing: -0.03em;
+  line-height: 1;
+  padding: 5% 2% 0;
+  max-height: 2.1em;
+  overflow: hidden;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.board.compact .tile-icon {
+  font-size: calc(var(--short) * 0.4);
+}
+.board.compact .tile-price {
+  font-size: calc(var(--short) * 0.22);
+  padding-bottom: 4%;
+}
+
+/* Game log: who did what, in their colour, with a gap between turns. */
+.log-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.log-more {
+  display: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  cursor: pointer;
+  min-height: 32px;
+  padding: 0 4px;
+}
+.log-line.has-who {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.log-tok {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 0.72rem;
+  background: #fff;
+  box-shadow: 0 0 0 2px var(--pc);
+}
+.log-line b {
+  color: #fff;
+}
+.log-dice {
+  color: var(--muted);
+}
+.log-sep {
+  height: 1px;
+  margin: 3px 0;
+  background: var(--line);
+  flex: none;
+}
+/* Phones: the log shows the latest few lines until you ask for more. */
+.game.portrait .log-more {
+  display: block;
+}
+.game.portrait .log-wrap:not(.expanded) .log {
+  max-height: 6.6em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(#000 65%, transparent);
+  mask-image: linear-gradient(#000 65%, transparent);
+}
+.game.portrait .log-wrap.expanded .log {
+  max-height: 60vh;
+}
+/* "clip" rather than "hidden": focus or scrollIntoView must never scroll the board centre. */
+.board-center {
+  overflow: clip;
+}
+.board.compact .tile-name {
+  font-size: calc(var(--short) * 0.25 * var(--fit, 1));
+}
+.board.compact .tile-icon {
+  font-size: calc(var(--short) * 0.36);
+}
+/* Small boards: the taller controls need the room, so the centre logo moves up a little. */
+.board.compact .center-logo {
+  top: 4%;
+  font-size: calc(var(--board) * 0.045);
+}
+.board.compact .center-hub {
+  margin-top: 14%;
+}

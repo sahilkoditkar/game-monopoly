@@ -69,7 +69,11 @@ export class BoardView {
       if (t.kind === 'lounge') inner.appendChild(el('div', 'corner-sub jackpot-label', ''));
       if (t.kind === 'gotojail') inner.appendChild(el('div', 'corner-sub', escapeHtml(localize('Go to Lockup'))));
     } else {
-      inner.appendChild(el('div', 'tile-name', escapeHtml(t.short)));
+      const name = el('div', 'tile-name', escapeHtml(t.short));
+      // Long single words shrink a little so they fit on small boards instead of being cut.
+      const longest = Math.max(...t.short.split(/\s+/).map((w) => w.length));
+      name.style.setProperty('--fit', String(Math.min(1, 7 / longest)));
+      inner.appendChild(name);
       inner.appendChild(el('div', 'tile-icon', t.icon));
       const label = t.price ? money(t.price) : t.tax ? `Pay ${money(t.tax)}` : '';
       inner.appendChild(el('div', 'tile-price', label));
@@ -261,6 +265,12 @@ export class BoardView {
       void tile.offsetWidth;
       tile.classList.add('flash');
     }
+  }
+
+  /** Dims every tile except those owned by `pid` (null clears it). */
+  markOwner(state: GameState, pid: number | null) {
+    this.root.classList.toggle('marking', pid !== null);
+    this.tiles.forEach((t, i) => t.classList.toggle('mine', pid !== null && state.props[i]?.owner === pid));
   }
 
   highlight(i: number | null) {
