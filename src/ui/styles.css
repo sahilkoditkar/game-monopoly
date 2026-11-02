@@ -2162,3 +2162,119 @@ select {
 .token-pick[hidden] {
   display: none;
 }
+
+/* ------------------------------------------------------------ usability pass A */
+
+/* Wide effects (turn banner, centre glow) must never widen the page on phones. */
+.game {
+  overflow-x: clip;
+}
+
+/* Disabled buttons should look clearly unavailable, not just slightly dim. */
+.btn:disabled {
+  opacity: 0.38;
+  filter: grayscale(0.7);
+}
+
+/* Touch targets: at least ~40px on anything you tap during play. */
+.ctrl-row.small .btn {
+  min-height: 40px;
+}
+.btn.small {
+  min-height: 36px;
+}
+.modal-head .peek-btn {
+  min-height: 36px;
+}
+.seg button {
+  min-height: 36px;
+}
+.count-seg button {
+  min-width: 44px;
+  min-height: 40px;
+}
+.color-pick {
+  gap: 10px;
+}
+.color-pick button {
+  width: 32px;
+  height: 32px;
+}
+@media (pointer: coarse) {
+  .btn.small,
+  .seg button,
+  .modal-head .peek-btn {
+    min-height: 40px;
+  }
+}
+
+/* Top bar: sound plus a labelled menu button. */
+.topbar .icon-btn {
+  width: 40px;
+  height: 40px;
+}
+.menu-btn {
+  width: auto !important;
+  padding: 0 12px;
+  display: flex !important;
+  gap: 6px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+.menu-btn span {
+  font-size: 0.9rem;
+}
+@media (max-width: 440px) {
+  .topbar .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .menu-btn span {
+    display: none;
+  }
+  .menu-btn {
+    padding: 0;
+    width: 40px !important;
+    justify-content: center;
+  }
+}
+
+/* Menu settings */
+.menu-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  margin: 4px 0;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.menu-settings label,
+.menu-settings .set-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.95rem;
+  min-height: 36px;
+}
+.menu-settings .set-row {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.ctrl-row:not(.small) .btn {
+  min-height: 44px;
+}
+.tchip {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+}
+.stepper .btn {
+  min-width: 44px;
+}
+/* Floating "+$100" / "DOUBLES!" effects stay under dialogs such as the menu. */
+.float-text {
+  z-index: 90;
+}

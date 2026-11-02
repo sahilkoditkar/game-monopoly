@@ -72,6 +72,11 @@ export class GameApp {
   private displayCash: number[] = [];
   private speed: Speed = pref('st-speed', 'normal') as Speed;
   private tilt = pref('st-tilt', '0') === '1';
+  /** AI turns play at Fast speed even when the game speed is Normal. */
+  private aiFast = pref('st-aifast', '1') === '1';
+  /** Set by "Skip": the rest of the AI turns run at Turbo until a human is up again. */
+  private skipping = false;
+  private soundBtn = el('button', 'icon-btn', isMuted() ? '🔇' : '🔊');
   private phaseModal: { key: string; handle: ModalHandle; update?: () => void } | null = null;
   private live = new Set<() => void>();
   private onResize = () => this.layout();
@@ -108,7 +113,23 @@ export class GameApp {
   }
 
   private get t() {
+    if (this.s.phase !== 'gameover' && this.game.player(this.game.actor()).ai) {
+      if (this.skipping) return SPEEDS.turbo;
+      if (this.aiFast && this.speed === 'normal') return SPEEDS.fast;
+    }
     return SPEEDS[this.speed];
+  }
+
+  private get turbo() {
+    return this.t === SPEEDS.turbo;
+  }
+
+  /** Fast-forwards the AI players until a human has to act. */
+  private skipAi() {
+    this.skipping = true;
+    for (const a of document.getAnimations()) if (a.effect && isFinite(a.effect.getComputedTiming().endTime as number)) a.finish();
+    play('click');
+    this.renderControls();
   }
 
   destroy() {
@@ -128,35 +149,13 @@ export class GameApp {
     top.innerHTML = `<div class="brand"><span class="logo-sky">SKYLINE</span> <span class="logo-ty">TYCOON</span></div>`;
     top.appendChild(this.roundEl);
     const tools = el('div', 'tools');
-    const soundBtn = el('button', 'icon-btn', isMuted() ? '🔇' : '🔊');
-    soundBtn.title = 'Sound';
-    soundBtn.addEventListener('click', () => {
-      setMuted(!isMuted());
-      soundBtn.textContent = isMuted() ? '🔇' : '🔊';
-      play('click');
-    });
-    const tiltBtn = el('button', 'icon-btn', '🧊');
-    tiltBtn.title = 'Toggle 3D view';
-    tiltBtn.addEventListener('click', () => {
-      this.tilt = !this.tilt;
-      setPref('st-tilt', this.tilt ? '1' : '0');
-      this.root.classList.toggle('tilted', this.tilt);
-      play('click');
-    });
-    const speedBtn = el('button', 'icon-btn speed-btn', this.speedLabel());
-    speedBtn.title = 'Animation speed';
-    speedBtn.addEventListener('click', () => {
-      const order: Speed[] = ['normal', 'fast', 'turbo'];
-      this.speed = order[(order.indexOf(this.speed) + 1) % 3];
-      setPref('st-speed', this.speed);
-      speedBtn.textContent = this.speedLabel();
-      toast(`Speed: <b>${this.speed}</b>`);
-      play('click');
-    });
-    const menuBtn = el('button', 'icon-btn', '☰');
-    menuBtn.title = 'Menu';
+    this.soundBtn.setAttribute('aria-label', 'Sound on or off');
+    this.soundBtn.title = 'Sound';
+    this.soundBtn.addEventListener('click', () => this.toggleSound());
+    const menuBtn = el('button', 'icon-btn menu-btn', '☰<span>Menu</span>');
+    menuBtn.setAttribute('aria-label', 'Menu and settings');
     menuBtn.addEventListener('click', () => this.openMenu());
-    tools.append(soundBtn, tiltBtn, speedBtn, menuBtn);
+    tools.append(this.soundBtn, menuBtn);
     top.appendChild(tools);
 
     const stage = el('main', 'stage');
@@ -185,10 +184,14 @@ export class GameApp {
     this.root.classList.toggle('tilted', this.tilt);
     this.host.innerHTML = '';
     this.host.appendChild(this.root);
+    // The setup screen may have been scrolled down to its Start button.
+    window.scrollTo(0, 0);
   }
 
-  private speedLabel() {
-    return this.speed === 'normal' ? '▶' : this.speed === 'fast' ? '⏩' : '⚡';
+  private toggleSound() {
+    setMuted(!isMuted());
+    this.soundBtn.textContent = isMuted() ? '🔇' : '🔊';
+    play('click');
   }
 
   private layout() {
@@ -298,6 +301,12 @@ export class GameApp {
       if (!actor.ai) {
         const b = button('…', 'primary wide', () => {}, true);
         c.appendChild(b);
+      } else if (!this.skipping) {
+        const row = el('div', 'ctrl-row small');
+        const skip = button('⏩ Skip', 'ghost', () => this.skipAi());
+        skip.setAttribute('aria-label', 'Skip the computer players\' animations');
+        row.appendChild(skip);
+        c.appendChild(row);
       }
       return;
     }
@@ -391,7 +400,10 @@ export class GameApp {
       while (this.s.phase !== 'gameover' && !this.destroyed) {
         const pid = this.game.actor();
         const p = this.game.player(pid);
-        if (!p.ai) break;
+        if (!p.ai) {
+          this.skipping = false;
+          break;
+        }
         this.busy = true;
         this.renderControls();
         await sleep(this.t.ai);
@@ -514,11 +526,11 @@ export class GameApp {
         break;
       }
       case 'pay': {
-        if (this.speed === 'turbo') break;
+        if (this.turbo) break;
         const from = this.tokenPoint(e.from);
         const to = e.to !== null ? this.tokenPoint(e.to) : centerOf(this.board.center);
         if (e.to === null) play('pay');
-        await flyCoins(from, to, e.to !== null ? 7 : 4, e.to !== null ? 650 : 450);
+        await flyCoins(from, to, e.to !== null ? 7 : 4, Math.round(((e.to !== null ? 650 : 450) * this.t.step) / 180));
         break;
       }
       case 'buy': {
@@ -526,7 +538,7 @@ export class GameApp {
         play('buy');
         const pt = centerOf(this.board.tileElement(e.tile));
         floatText(pt.x, pt.y, 'SOLD!', 'stamp');
-        await sleep(this.speed === 'turbo' ? 50 : 350);
+        await sleep(this.turbo ? 50 : 350);
         break;
       }
       case 'card':
@@ -536,7 +548,7 @@ export class GameApp {
         play('jail');
         const pt = centerOf(this.board.root);
         floatText(pt.x, pt.y, '🚨 BUSTED!', 'big red');
-        await sleep(this.speed === 'turbo' ? 100 : 600);
+        await sleep(this.turbo ? 100 : 600);
         break;
       }
       case 'leaveJail':
@@ -545,7 +557,7 @@ export class GameApp {
       case 'build':
         this.board.renderTiles(s, e.tile, true);
         play('build');
-        await sleep(this.speed === 'turbo' ? 30 : 220);
+        await sleep(this.turbo ? 30 : 220);
         break;
       case 'mortgage':
         this.board.renderTiles(s, e.tile);
@@ -578,7 +590,7 @@ export class GameApp {
         confetti(pt.x, pt.y, 90, [g.color, '#ffffff', p.color]);
         play('jackpot');
         toast(`⭐ <b>${escapeHtml(p.name)}</b> owns all of <b style="color:${g.color}">${escapeHtml(g.name)}</b>!`, 'good', 3200);
-        await sleep(this.speed === 'turbo' ? 50 : 500);
+        await sleep(this.turbo ? 50 : 500);
         break;
       }
       case 'jackpot': {
@@ -595,7 +607,7 @@ export class GameApp {
         toast(`💥 <b>${escapeHtml(p.name)}</b> went bankrupt!`, 'bad', 3500);
         this.board.setTokens(s);
         this.board.renderTiles(s);
-        await sleep(this.speed === 'turbo' ? 100 : 900);
+        await sleep(this.turbo ? 100 : 900);
         break;
       }
       case 'trade':
@@ -615,7 +627,7 @@ export class GameApp {
     const card = CARD_BY_ID[id];
     const p = this.game.player(pid);
     play('card');
-    if (this.speed === 'turbo' && p.ai) {
+    if (p.ai && this.turbo) {
       toast(`${card.deck === 'fortune' ? '🔮' : '💼'} <b>${escapeHtml(p.name)}</b>: ${escapeHtml(card.title)}`);
       return;
     }
@@ -840,10 +852,11 @@ export class GameApp {
           const houses = o.houses === 5 ? '🏨' : '🏠'.repeat(o.houses);
           row.innerHTML = `<div class="mname">${TILES[t].icon} ${escapeHtml(TILES[t].name)} <span class="mh">${houses}</span>${o.mortgaged ? ' <span class="tag warn">Mortgaged</span>' : ''}</div>`;
           const btns = el('div', 'mbtns');
-          if (TILES[t].kind === 'property') {
+          // Build and sell only appear where they can apply: a full set, or a tile with buildings.
+          if (TILES[t].kind === 'property' && full && o.houses < 5)
             btns.appendChild(button(`+🏠 ${money(houseCost(t))}`, 'small good', () => this.act(() => this.game.build(pid, t)), !can || !this.game.canBuild(pid, t)));
+          if (TILES[t].kind === 'property' && o.houses > 0)
             btns.appendChild(button(`−🏠 +${money(houseCost(t) / 2)}`, 'small ghost', () => this.act(() => this.game.sell(pid, t)), !can || !this.game.canSell(pid, t)));
-          }
           if (o.mortgaged)
             btns.appendChild(button(`Pay off ${money(unmortgageCost(t))}`, 'small gold', () => this.act(() => this.game.unmortgage(pid, t)), !can || !this.game.canUnmortgage(pid, t)));
           else
@@ -1095,6 +1108,42 @@ export class GameApp {
         openModal({ title: 'How to play', html: rulesHtml(), cls: 'rules-modal' });
       }),
     );
+
+    const settings = el('div', 'menu-settings');
+    settings.innerHTML = `
+      <div class="section-title">Settings</div>
+      <label class="switch"><input type="checkbox" data-set="sound" ${isMuted() ? '' : 'checked'}/><span></span>🔊 Sound effects</label>
+      <div class="set-row"><span>🎬 Animation speed</span><div class="seg small speed-seg">${(['normal', 'fast', 'turbo'] as Speed[])
+        .map((v) => `<button class="${v === this.speed ? 'on' : ''}" data-speed="${v}">${v[0].toUpperCase() + v.slice(1)}</button>`)
+        .join('')}</div></div>
+      <label class="switch"><input type="checkbox" data-set="aifast" ${this.aiFast ? 'checked' : ''}/><span></span>⏩ Speed up computer players' turns</label>
+      <label class="switch"><input type="checkbox" data-set="tilt" ${this.tilt ? 'checked' : ''}/><span></span>🧊 Tilted 3D board</label>`;
+    settings.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach((b) =>
+      b.addEventListener('click', () => {
+        this.speed = b.dataset.speed as Speed;
+        setPref('st-speed', this.speed);
+        settings.querySelectorAll('[data-speed]').forEach((x) => x.classList.toggle('on', x === b));
+        play('click');
+      }),
+    );
+    settings.querySelectorAll<HTMLInputElement>('[data-set]').forEach((inp) =>
+      inp.addEventListener('change', () => {
+        const on = inp.checked;
+        if (inp.dataset.set === 'sound') {
+          if (on === isMuted()) this.toggleSound();
+        } else if (inp.dataset.set === 'aifast') {
+          this.aiFast = on;
+          setPref('st-aifast', on ? '1' : '0');
+        } else {
+          this.tilt = on;
+          setPref('st-tilt', on ? '1' : '0');
+          this.root.classList.toggle('tilted', on);
+        }
+        play('click');
+      }),
+    );
+    list.appendChild(settings);
+
     list.appendChild(
       button('🏁 End game now (richest wins)', 'ghost', () => {
         m.close();
