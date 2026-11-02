@@ -273,6 +273,16 @@ export class BoardView {
     this.tiles.forEach((t, i) => t.classList.toggle('mine', pid !== null && state.props[i]?.owner === pid));
   }
 
+  /** Tints the tiles a roll of 2-12 can reach from `pos`, brighter for likelier totals. */
+  showReach(pos: number | null) {
+    this.tiles.forEach((t, i) => {
+      const steps = pos === null ? 0 : (i - pos + 40) % 40;
+      const on = steps >= 2 && steps <= 12;
+      t.classList.toggle('reach', on);
+      if (on) t.style.setProperty('--reach', String((6 - Math.abs(7 - steps)) / 6));
+    });
+  }
+
   highlight(i: number | null) {
     this.tiles.forEach((t, k) => t.classList.toggle('focus', k === i));
   }

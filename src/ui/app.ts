@@ -64,6 +64,8 @@ export class GameApp {
   private logEl = el('div', 'log');
   private controlsEl = el('div', 'controls');
   private statusEl = el('div', 'status-line');
+  /** Shows the tiles 2-12 steps ahead before a human rolls. */
+  private reach = pref('st-reach', '1') === '1';
   private bannerEl = el('div', 'turn-banner');
   private roundEl = el('span', 'round-pill');
   private busy = false;
@@ -102,10 +104,36 @@ export class GameApp {
     this.layout();
     this.render();
     // Play the opening "turn" event, then hand control to the AI if needed.
+    this.maybeShowTips();
     void this.playAll(opening).then(() => {
       this.render();
       void this.loop();
     });
+  }
+
+  /** A one-time card explaining the hidden shortcuts. */
+  private maybeShowTips() {
+    if (pref('st-tips', '0') === '1' || this.s.players.every((p) => p.ai)) return;
+    const tip = el(
+      'div',
+      'tip-card',
+      `<div class="tip-title">💡 Quick tips</div>
+       <ul>
+         <li>Tap any <b>tile</b> to see its price and rents.</li>
+         <li>Tap a <b>player</b> to see their properties on the board.</li>
+         <li>Glowing tiles show where your next roll can land.</li>
+         <li>Press <b>Space</b> to roll or end your turn. ⏩ <b>Skip</b> speeds through computer turns.</li>
+       </ul>`,
+    );
+    tip.setAttribute('role', 'dialog');
+    tip.setAttribute('aria-label', 'Quick tips');
+    const ok = button('Got it', 'primary small', () => {
+      setPref('st-tips', '1');
+      tip.classList.add('gone');
+      setTimeout(() => tip.remove(), 300);
+    });
+    tip.appendChild(ok);
+    this.root.appendChild(tip);
   }
 
   private get s() {
@@ -134,6 +162,7 @@ export class GameApp {
 
   destroy() {
     this.destroyed = true;
+    document.body.classList.remove('docked');
     window.removeEventListener('resize', this.onResize);
     window.visualViewport?.removeEventListener('resize', this.onResize);
     document.removeEventListener('keydown', this.onKey);
@@ -158,6 +187,8 @@ export class GameApp {
     tools.append(this.soundBtn, menuBtn);
     top.appendChild(tools);
 
+    this.statusEl.setAttribute('role', 'status');
+    this.statusEl.setAttribute('aria-live', 'polite');
     const stage = el('main', 'stage');
     const boardWrap = el('div', 'board-wrap');
     boardWrap.appendChild(this.board.root);
@@ -203,19 +234,26 @@ export class GameApp {
   private layout() {
     const vw = window.visualViewport?.width ?? window.innerWidth;
     const vh = window.visualViewport?.height ?? window.innerHeight;
-    const topH = 52;
     const landscape = vw >= vh * 1.1 && vw >= 720;
+    const topH = landscape && vh < 520 ? 44 : 52;
     this.root.classList.toggle('landscape', landscape);
     this.root.classList.toggle('portrait', !landscape);
     let size: number;
+    const short = landscape && vh < 520;
+    this.root.classList.toggle('short', short);
     if (landscape) {
-      const sideW = Math.min(360, Math.max(250, vw * 0.27));
+      const sideW = short ? Math.min(300, Math.max(220, vw * 0.3)) : Math.min(360, Math.max(250, vw * 0.27));
       this.root.style.setProperty('--side-w', `${sideW}px`);
-      size = Math.min(vh - topH - 48, vw - sideW - 64);
+      size = Math.min(vh - topH - (short ? 14 : 48), vw - sideW - (short ? 36 : 64));
     } else {
       size = Math.min(vw - 12, (vh - topH) * 0.68, 760);
     }
     this.board.resize(Math.max(280, Math.floor(size)));
+    // Wide screens: decisions (buy, auction, debt) dock to the right instead of covering the board.
+    const free = vw - this.board.root.getBoundingClientRect().right;
+    const dock = landscape && !short && free >= 380;
+    document.body.classList.toggle('docked', dock);
+    if (dock) document.body.style.setProperty('--dock-w', `${Math.min(440, free - 24)}px`);
   }
 
   // ------------------------------------------------------------------ rendering
@@ -229,6 +267,8 @@ export class GameApp {
     this.renderPlayers();
     this.renderControls();
     this.syncPhaseModal();
+    const human = this.humanActor();
+    this.board.showReach(this.reach && human && s.phase === 'roll' && !human.inJail && !this.busy ? human.pos : null);
     for (const fn of this.live) fn();
   }
 
@@ -337,10 +377,13 @@ export class GameApp {
           row.appendChild(button(s.doublesCount ? '🎲 Roll again' : '🎲 Roll dice', 'primary wide pulse', () => this.act(() => this.game.roll())));
         }
         break;
-      case 'end':
+      case 'end': {
         this.statusEl.innerHTML = `<b>${name}</b>, anything else?`;
+        const sets = [...new Set(BUYABLE.filter((i) => this.game.canBuild(actor.id, i)).map((i) => GROUPS[TILES[i].group!].name))];
+        if (sets.length) this.statusEl.innerHTML += `<div class="ctrl-hint">💡 You can build on ${sets.map((n) => `<b>${escapeHtml(n)}</b>`).join(', ')}</div>`;
         row.appendChild(button('End turn ➜', 'primary wide', () => this.act(() => this.game.endTurn())));
         break;
+      }
       case 'buy':
         this.statusEl.innerHTML = `<b>${name}</b> is deciding…`;
         row.appendChild(button('View offer', 'primary', () => this.syncPhaseModal(true)));
@@ -1154,6 +1197,7 @@ export class GameApp {
         .map((v) => `<button class="${v === this.speed ? 'on' : ''}" data-speed="${v}">${v[0].toUpperCase() + v.slice(1)}</button>`)
         .join('')}</div></div>
       <label class="switch"><input type="checkbox" data-set="aifast" ${this.aiFast ? 'checked' : ''}/><span></span>⏩ Speed up computer players' turns</label>
+      <label class="switch"><input type="checkbox" data-set="reach" ${this.reach ? 'checked' : ''}/><span></span>🎯 Show where I can land</label>
       <label class="switch"><input type="checkbox" data-set="tilt" ${this.tilt ? 'checked' : ''}/><span></span>🧊 Tilted 3D board</label>`;
     settings.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -1171,6 +1215,10 @@ export class GameApp {
         } else if (inp.dataset.set === 'aifast') {
           this.aiFast = on;
           setPref('st-aifast', on ? '1' : '0');
+        } else if (inp.dataset.set === 'reach') {
+          this.reach = on;
+          setPref('st-reach', on ? '1' : '0');
+          this.render();
         } else {
           this.tilt = on;
           setPref('st-tilt', on ? '1' : '0');

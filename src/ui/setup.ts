@@ -11,6 +11,7 @@ export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑',
  * so these are deep tones: burgundy, deep teal, olive, charcoal and forest green.
  */
 export const COLORS = ['#8d354b', '#2a6f6b', '#8d8435', '#212529', '#256105'];
+const COLOR_NAMES = ['Burgundy', 'Deep teal', 'Olive', 'Charcoal', 'Forest green'];
 const AI_NAMES = ['Ava', 'Bolt', 'Cleo', 'Dex', 'Echo', 'Fizz'];
 
 interface Seat {
@@ -92,7 +93,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
         <p class="tagline">${escapeHtml(currentEdition().blurb)}</p>
         <div class="setup-actions-top"></div>
         <div class="section-title">Players</div>
-        <div class="seg count-seg">${[2, 3, 4].map((n) => `<button class="${n === count ? 'on' : ''}" data-count="${n}">${n}</button>`).join('')}</div>
+        <div class="seg count-seg">${[2, 3, 4].map((n) => `<button class="${n === count ? 'on' : ''}" data-count="${n}" aria-label="${n} players">${n}</button>`).join('')}</div>
         <div class="seats"></div>
         <div class="section-title">Board</div>
         <div class="seg edition-seg">${Object.values(EDITIONS)
@@ -156,7 +157,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           const taken = seats.slice(0, count).some((x) => x !== s && x.token === t);
           return `<button data-token="${t}" class="${t === s.token ? 'on' : ''}" ${taken ? 'disabled title="Taken by another player"' : ''} aria-pressed="${t === s.token}">${t}</button>`;
         }).join('')}</div>
-        <div class="color-pick" role="group" aria-label="Player ${i + 1} colour">${COLORS.map((c) => `<button class="${c === s.color ? 'on' : ''}" data-color="${c}" style="--sw:${c}" aria-label="Colour ${c}" aria-pressed="${c === s.color}"></button>`).join('')}</div>`;
+        <div class="color-pick" role="group" aria-label="Player ${i + 1} colour">${COLORS.map((c) => `<button class="${c === s.color ? 'on' : ''}" data-color="${c}" style="--sw:${c}" aria-label="${COLOR_NAMES[COLORS.indexOf(c)]}" aria-pressed="${c === s.color}"></button>`).join('')}</div>`;
       row.querySelectorAll<HTMLButtonElement>('[data-color]').forEach((b) =>
         b.addEventListener('click', () => {
           // Colours stay unique: swap with whoever already has it.
