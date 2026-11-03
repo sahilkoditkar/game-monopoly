@@ -186,3 +186,42 @@ for (const L of [
   expect(latin).toEqual([]);
   expect(errors).toEqual([]);
 });
+
+test('daily challenge: its own section, fixed rules, and a score at the end', async ({ page }) => {
+  const errors = watchErrors(page);
+  await open(page);
+  await expect(page.locator('.daily-card')).toBeVisible();
+  await page.click('.daily-btn');
+  await expect(page.locator('.board')).toBeVisible();
+  await expect(page.locator('.round-pill')).toContainText('📅');
+  await expect(page.locator('.round-pill')).toContainText('/ 20');
+  await expect(page.locator('.pcard')).toHaveCount(4);
+  await playTurns(page, 2);
+  await page.click('.menu-btn');
+  await page.locator('.menu-modal button', { hasText: /End game now/ }).click();
+  await page.locator('.confirm-modal button.danger').click();
+  await expect(page.locator('.gameover-modal .daily-result')).toContainText('official score');
+  await page.locator('.gameover-modal button', { hasText: /Main menu/ }).click();
+  await expect(page.locator('.daily-card')).toContainText('Your score');
+  await expect(page.locator('.daily-btn')).toContainText('practice');
+  expect(errors).toEqual([]);
+});
+
+test('house rules: news, missions and action cards show up in play', async ({ page }) => {
+  const errors = watchErrors(page);
+  await open(page);
+  await page.click('summary');
+  for (const rule of ['news', 'missions', 'actionCards']) await page.locator('label.switch', { has: page.locator(`[data-opt="${rule}"]`) }).click();
+  await startGame(page, 3);
+  await expect(page.locator('.pcard .badge', { hasText: '🎯' })).toHaveCount(3);
+  await expect(page.locator('.pcard .badge', { hasText: '🃏' }).first()).toBeVisible();
+  await expect(page.locator('.controls .cards-btn')).toBeVisible();
+  await page.locator('.controls .cards-btn').click();
+  await expect(page.locator('.hand-modal.open .action-card')).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  await page.locator('.controls button', { hasText: /Manage/ }).click();
+  await expect(page.locator('.manage-modal.open .mission-box')).toContainText('secret mission');
+  await page.keyboard.press('Escape');
+  await playTurns(page, 6);
+  expect(errors).toEqual([]);
+});

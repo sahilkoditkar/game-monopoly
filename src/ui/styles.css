@@ -2555,7 +2555,7 @@ body.docked .auction-modal .auction-grid {
 .game.short .pcash {
   font-size: 0.9rem;
 }
-.game.short .badge {
+.game.short .badge.ai-badge {
   display: none;
 }
 .game.short .log-wrap {
@@ -2709,4 +2709,174 @@ body.docked .auction-modal .auction-grid {
 :is(:lang(mr), :lang(hi)) .corner-name,
 :is(:lang(mr), :lang(hi)) .badge {
   letter-spacing: 0;
+}
+
+/* ------------------------------------------------------------ house rules: news, missions, cards */
+
+/* House-rule switches with a one-line explanation */
+.switch.rule {
+  align-items: flex-start !important;
+}
+.switch.rule > span {
+  margin-top: 2px;
+}
+.switch.rule div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.switch.rule small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+/* Breaking news: a headline toast and a badge on affected tiles */
+.toast.news {
+  background: linear-gradient(135deg, #b91c1c, #7f1d1d);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 0 0 2px rgba(255, 255, 255, 0.25);
+  font-size: 1rem;
+  max-width: min(520px, calc(100vw - 24px));
+}
+.news-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 3;
+  min-width: 18px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  font-size: clamp(8px, calc(var(--short) * 0.24), 12px);
+  font-weight: 800;
+  line-height: 1.3;
+  text-align: center;
+  color: #fff;
+  background: #16a34a;
+  box-shadow: 0 0 0 1.5px #fff;
+  pointer-events: none;
+  animation: pop 0.4s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+.news-badge.down {
+  background: #dc2626;
+}
+
+/* Secret missions */
+.badge.good {
+  background: rgba(34, 197, 94, 0.25);
+  color: #86efac;
+}
+.mission-box {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 209, 102, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.45);
+  font-size: 0.92rem;
+}
+.mission-box small {
+  display: block;
+  color: var(--muted);
+}
+.mission-box.done {
+  background: rgba(34, 197, 94, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.45);
+}
+
+/* Action cards */
+.hand {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+.action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fffdf6, #f3ead2);
+  color: #1d2142;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+  text-align: center;
+}
+.ac-icon {
+  font-size: 2rem;
+}
+.ac-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.ac-text {
+  font-size: 0.82rem;
+  line-height: 1.3;
+  color: #4b5078;
+  flex: 1;
+}
+.ac-why {
+  font-size: 0.75rem;
+  color: #9a3412;
+}
+.cards-btn {
+  min-width: 56px;
+}
+
+/* ------------------------------------------------------------ daily challenge */
+.daily-card,
+.daily-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(255, 209, 102, 0.16), rgba(255, 122, 61, 0.1));
+  box-shadow: inset 0 0 0 1.5px rgba(255, 209, 102, 0.5);
+}
+.daily-card p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+.daily-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-display);
+}
+.daily-head small {
+  color: var(--muted);
+  font-family: var(--font);
+}
+.daily-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 0.85rem;
+}
+.daily-btn {
+  width: 100%;
+}
+.daily-result {
+  margin-top: 12px;
+  text-align: center;
+}
+.daily-result .daily-meta {
+  justify-content: center;
+}
+.daily-score {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 700;
+  color: #b8ffcf;
+}
+/* Small boards: Manage / Trade / Cards stay on one line inside the board centre. */
+.board.compact .ctrl-row.small {
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.board.compact .ctrl-row.small .btn {
+  padding: 0.4em 0.55em;
+  min-height: 36px;
+  font-size: clamp(0.64rem, calc(var(--board) * 0.03), 0.85rem);
 }

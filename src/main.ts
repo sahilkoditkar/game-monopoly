@@ -4,7 +4,9 @@ import { Game } from './game/engine';
 import type { PlayerConfig, Settings } from './game/types';
 import { GameApp, clearSave, loadSave } from './ui/app';
 import { openModal } from './ui/modal';
+import { dailySeed } from './ui/daily';
 import { renderSetup, rulesHtml, type SetupResult } from './ui/setup';
+import { tr } from './i18n';
 
 const host = document.getElementById('app')!;
 let app: GameApp | null = null;
@@ -19,7 +21,8 @@ function rematchConfig(g: Game): SetupResult {
     difficulty: p.difficulty,
   }));
   const settings: Partial<Settings> = { ...g.state.settings };
-  return { players, settings };
+  // A daily challenge rematch replays the same day (as practice).
+  return { players, settings, seed: settings.daily ? dailySeed(settings.daily) : undefined };
 }
 
 function launch(game: Game, mem: ConstructorParameters<typeof GameApp>[2] = []) {
@@ -34,7 +37,7 @@ function launch(game: Game, mem: ConstructorParameters<typeof GameApp>[2] = []) 
 
 function startNew(r: SetupResult) {
   clearSave();
-  launch(Game.create(r.players, r.settings));
+  launch(Game.create(r.players, r.settings, r.seed));
 }
 
 function showSetup() {
@@ -48,7 +51,7 @@ function showSetup() {
       if (save) launch(new Game(save.state), save.mem);
       else showSetup();
     },
-    onRules: () => openModal({ title: 'How to play', html: rulesHtml(), cls: 'rules-modal' }),
+    onRules: () => openModal({ title: tr('How to play'), html: rulesHtml(), cls: 'rules-modal' }),
   });
 }
 

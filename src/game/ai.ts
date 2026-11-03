@@ -1,6 +1,6 @@
 import { BUYABLE, GROUPS, JAIL_FINE, TILES, groupTiles, houseCost, mortgageValue, unmortgageCost } from './board';
 import type { Game } from './engine';
-import type { Difficulty, TradeOffer, TradeSide } from './types';
+import type { ActionCard, Difficulty, TradeOffer, TradeSide } from './types';
 
 export type AiAction =
   | { type: 'roll' }
@@ -16,7 +16,8 @@ export type AiAction =
   | { type: 'unmortgage'; tile: number }
   | { type: 'bankrupt' }
   | { type: 'endTurn' }
-  | { type: 'trade'; offer: TradeOffer };
+  | { type: 'trade'; offer: TradeOffer }
+  | { type: 'playCard'; card: ActionCard };
 
 /** Per-player memory so the AI doesn't spam the same trade every turn. */
 export interface AiMemory {
@@ -84,7 +85,32 @@ export function tileValue(g: Game, pid: number, tile: number): number {
   } else if (def.kind === 'utility') {
     v *= 0.75;
   }
+  // A secret mission makes its targets worth more to the player chasing it.
+  const m = g.state.missions?.[pid];
+  if (m && !m.done) {
+    const hit =
+      (m.kind === 'set' && def.group === m.group) ||
+      (m.kind === 'stations' && def.kind === 'transit') ||
+      (m.kind === 'utilities' && def.kind === 'utility') ||
+      m.kind === 'props';
+    if (hit) v *= 1.3;
+  }
   return v;
+}
+
+const hasCard = (g: Game, pid: number, card: ActionCard) => g.cardBlocker(pid, card) === null;
+
+/** Expected rent owed on the next roll from `pid`'s position (2d6 odds), for the Rent holiday card. */
+function rentRisk(g: Game, pid: number): number {
+  const p = g.player(pid);
+  let risk = 0;
+  for (let total = 2; total <= 12; total++) {
+    const odds = (6 - Math.abs(7 - total)) / 36;
+    const tile = (p.pos + total) % 40;
+    const owner = g.ownerOf(tile);
+    if (owner !== null && owner !== pid) risk += odds * g.rentFor(tile, total);
+  }
+  return risk;
 }
 
 /** Strategic worth of a player's portfolio, used to compare trades. */
@@ -248,6 +274,7 @@ function manage(g: Game, pid: number, mem: AiMemory): AiAction | null {
 
   if (mem.builds < 12) {
     const t = bestBuild(g, pid);
+    if (t !== null && hasCard(g, pid, 'free')) return { type: 'playCard', card: 'free' };
     if (t !== null) {
       mem.builds++;
       return { type: 'build', tile: t };
@@ -309,7 +336,9 @@ export function decide(g: Game, pid: number, mem: AiMemory): AiAction {
 
     case 'buy': {
       const tile = p.pos;
-      const price = TILES[tile].price!;
+      // A Half price card is worth playing on anything worth owning.
+      if (hasCard(g, pid, 'half') && tileValue(g, pid, tile) >= TILES[tile].price! * 0.8 && p.cash >= TILES[tile].price! / 2) return { type: 'playCard', card: 'half' };
+      const price = g.buyPrice();
       if (p.cash < price) return { type: 'decline' };
       if (g.random() < prof.mistakes) return { type: 'decline' };
       const v = tileValue(g, pid, tile);
@@ -321,6 +350,8 @@ export function decide(g: Game, pid: number, mem: AiMemory): AiAction {
     case 'roll': {
       const m = manage(g, pid, mem);
       if (m) return m;
+      if (!p.inJail && hasCard(g, pid, 'holiday') && rentRisk(g, pid) >= 60) return { type: 'playCard', card: 'holiday' };
+      if (!p.inJail && hasCard(g, pid, 'boost') && (g.state.hands?.[pid]?.length ?? 0) >= 3) return { type: 'playCard', card: 'boost' };
       if (p.inJail) {
         const lateGame = unownedLeft(g) < 6 && threat(g, pid) > 300;
         if (!lateGame) {
@@ -374,6 +405,8 @@ export function apply(g: Game, pid: number, a: AiAction): boolean {
       return g.endTurn();
     case 'trade':
       return acceptsTrade(g, a.offer) && g.executeTrade(a.offer);
+    case 'playCard':
+      return g.playCard(pid, a.card);
   }
 }
 
