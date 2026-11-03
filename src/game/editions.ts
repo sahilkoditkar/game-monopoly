@@ -1,5 +1,7 @@
 import { GROUPS, TILES } from './board';
 import { CARDS } from './cards';
+import { getLang } from '../i18n';
+import { MR_CARDS, MR_NAMES } from '../i18n/mr';
 
 /**
  * Board editions change only names, icons and the currency symbol. Prices, rents, rules and
@@ -179,13 +181,24 @@ export function formatMoney(n: number) {
 
 /** Turns world-edition text (names, "Skyport", "$") into the current edition's wording. */
 export function localize(text: string): string {
-  if (current.id === 'world') return text;
+  if (!swapper && current.currency === '$') return text;
   return (swapper ? swapper(text) : text).replace(/\$(?=\d)/g, current.currency);
 }
 
 /** Switches every displayed name to an edition. Engine numbers are untouched. */
 export function applyEdition(id: string | undefined) {
-  current = EDITIONS[(id as EditionId) ?? 'world'] ?? EDITIONS.world;
+  const base = EDITIONS[(id as EditionId) ?? 'world'] ?? EDITIONS.world;
+  // In Marathi every board uses Devanagari names; icons and everything else stay the same.
+  const mr = getLang() === 'mr' ? MR_NAMES[base.id] : undefined;
+  current = mr
+    ? {
+        ...base,
+        decks: mr.decks,
+        words: mr.words,
+        groups: mr.groups,
+        tiles: Object.fromEntries(TILES.map((_, i) => [i, [mr.tiles[i][0], mr.tiles[i][1], (base.tiles[i] ?? BASE.tiles[i])[2]]])),
+      }
+    : base;
   TILES.forEach((t, i) => {
     const [name, short, icon] = current.tiles[i] ?? BASE.tiles[i];
     t.name = name;
@@ -207,7 +220,15 @@ export function applyEdition(id: string | undefined) {
   const re = keys.length ? new RegExp(keys.map(esc).join('|'), 'g') : null;
   swapper = re ? (s) => s.replace(re, (m) => pairs.get(m) ?? m) : null;
   CARDS.forEach((c, i) => {
-    c.title = BASE.cards[i][0];
-    c.text = localize(BASE.cards[i][1]);
+    const mrCard = mr && MR_CARDS[c.id];
+    if (mrCard) {
+      c.title = mrCard[0];
+      c.text = mrCard[1].replace(/\{(t|m)(\d+)\}|\{transit\}/g, (m, kind?: string, n?: string) =>
+        kind === 't' ? TILES[+n!].name : kind === 'm' ? formatMoney(+n!) : current.words[1]?.[1] ?? m,
+      );
+    } else {
+      c.title = BASE.cards[i][0];
+      c.text = localize(BASE.cards[i][1]);
+    }
   });
 }

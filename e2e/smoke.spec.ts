@@ -134,3 +134,52 @@ test('quick game deals two cities to everyone', async ({ page }) => {
   await expect(page.locator('.tile.owned')).toHaveCount(6);
   await expect(page.locator('.round-pill')).toContainText('/ 15');
 });
+
+test('Marathi shows Marathi everywhere, with no English left on screen', async ({ page }) => {
+  const errors = watchErrors(page);
+  await open(page);
+  await page.click('.lang-seg [data-lang="mr"]');
+  await page.click('.edition-seg [data-edition="maharashtra"]');
+  await page.click('.rules-btn');
+  const rules = page.locator('.rules-modal.open .rules');
+  await expect(rules).toContainText('ध्येय');
+  expect(await rules.innerText()).not.toMatch(/[{}]|[A-Za-z]{3,}/);
+  await page.keyboard.press('Escape');
+  await page.click(`.count-seg [data-count="3"]`);
+  await page.locator('.seat [data-ai="0"]').nth(0).click();
+  await page.locator('.seat [data-ai="1"]').nth(1).click();
+  await page.locator('.seat [data-ai="1"]').nth(2).click();
+  await page.click('.start-btn');
+  await expect(page.locator('.tile[data-index="39"]')).toContainText('मुंबई');
+  // Play a few turns by the Marathi button labels.
+  for (let i = 0, rolls = 0; i < 400 && rolls < 4; i++) {
+    const tap = (sel: string) => page.locator(sel).first().click({ timeout: 3000 }).catch(() => {});
+    if (await page.$('.card-modal.open .card-ok')) await tap('.card-ok');
+    else if (await page.$('.trade-modal.open .modal-actions')) await tap('.trade-modal .modal-actions button:nth-child(2)');
+    else if (await page.$('.buy-modal.open')) await tap('.buy-modal .modal-actions button');
+    else if (await page.$('.auction-modal.open .bid-turn')) await tap('.auction-modal .modal-actions button:nth-child(2)');
+    else if (await page.$('.debt-modal.open')) break;
+    else {
+      const main = page.locator('.controls .ctrl-row:not(.small) button.primary').first();
+      const label = (await main.count()) ? ((await main.textContent()) ?? '') : '';
+      if (label.includes('फासे') && (await main.isEnabled())) {
+        await tap('.controls .ctrl-row:not(.small) button.primary');
+        rolls++;
+      } else if (label.includes('पाळी संपवा')) await tap('.controls .ctrl-row:not(.small) button.primary');
+      else await page.waitForTimeout(100);
+    }
+  }
+  const latin = await page.evaluate(() => {
+    const words = new Set<string>();
+    const walk = (n: Node) => {
+      for (const c of Array.from(n.childNodes)) {
+        if (c.nodeType === 3) (c.textContent ?? '').match(/[A-Za-z]{3,}/g)?.forEach((w) => words.add(w));
+        else if (c.nodeType === 1 && !['SCRIPT', 'STYLE'].includes(c.nodeName)) walk(c);
+      }
+    };
+    walk(document.body);
+    return [...words].filter((w) => !['SKYLINE', 'TYCOON', 'GPS'].includes(w));
+  });
+  expect(latin).toEqual([]);
+  expect(errors).toEqual([]);
+});

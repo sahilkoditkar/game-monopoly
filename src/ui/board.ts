@@ -1,6 +1,6 @@
 import { GROUPS, JAIL_INDEX, TILES } from '../game/board';
 import type { GameState } from '../game/types';
-import { localize } from '../game/editions';
+import { tr } from '../i18n';
 import { el, escapeHtml, money, sleep } from './fx';
 import { play } from './sound';
 
@@ -64,10 +64,10 @@ export class BoardView {
     if (sideOf(i) === 'corner') {
       inner.appendChild(el('div', 'corner-icon', t.icon));
       inner.appendChild(el('div', 'corner-name', escapeHtml(t.name)));
-      if (t.kind === 'jail') inner.appendChild(el('div', 'corner-sub', 'Just visiting'));
-      if (t.kind === 'start') inner.appendChild(el('div', 'corner-sub', 'Collect salary'));
+      if (t.kind === 'jail') inner.appendChild(el('div', 'corner-sub', tr('Just visiting')));
+      if (t.kind === 'start') inner.appendChild(el('div', 'corner-sub', tr('Collect salary')));
       if (t.kind === 'lounge') inner.appendChild(el('div', 'corner-sub jackpot-label', ''));
-      if (t.kind === 'gotojail') inner.appendChild(el('div', 'corner-sub', escapeHtml(localize('Go to Lockup'))));
+      if (t.kind === 'gotojail') inner.appendChild(el('div', 'corner-sub', escapeHtml(tr('Go to {jail}', { jail: TILES[JAIL_INDEX].name }))));
     } else {
       const name = el('div', 'tile-name', escapeHtml(t.short));
       // Long single words shrink a little so they fit on small boards instead of being cut.
@@ -75,7 +75,7 @@ export class BoardView {
       name.style.setProperty('--fit', String(Math.min(1, 7 / longest)));
       inner.appendChild(name);
       inner.appendChild(el('div', 'tile-icon', t.icon));
-      const label = t.price ? money(t.price) : t.tax ? `Pay ${money(t.tax)}` : '';
+      const label = t.price ? money(t.price) : t.tax ? tr('Pay {amount}', { amount: money(t.tax) }) : '';
       inner.appendChild(el('div', 'tile-price', label));
     }
     inner.appendChild(el('div', 'owner-bar'));
@@ -258,7 +258,7 @@ export class BoardView {
       }
     }
     const jp = this.root.querySelector('.jackpot-label');
-    if (jp) jp.textContent = state.settings.jackpot ? `Jackpot ${money(state.jackpot)}` : 'Free stop';
+    if (jp) jp.textContent = state.settings.jackpot ? tr('Jackpot {amount}', { amount: money(state.jackpot) }) : tr('Free stop');
     if (changed !== undefined) {
       const tile = this.tiles[changed];
       tile.classList.remove('flash');
