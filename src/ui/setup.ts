@@ -1,5 +1,8 @@
 import type { Difficulty, PlayerConfig, Settings } from '../game/types';
 import { EDITIONS, applyEdition, currentEdition, localize, type EditionId } from '../game/editions';
+import { getLang, setLang, tr, type Lang } from '../i18n';
+import { MR_RULES } from '../i18n/mr';
+import { JAIL_FINE, TILES } from '../game/board';
 import { el, escapeHtml, money } from './fx';
 import { play, unlockAudio } from './sound';
 
@@ -12,7 +15,11 @@ export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑',
  */
 export const COLORS = ['#8d354b', '#2a6f6b', '#8d8435', '#212529', '#256105'];
 const COLOR_NAMES = ['Burgundy', 'Deep teal', 'Olive', 'Charcoal', 'Forest green'];
-const AI_NAMES = ['Ava', 'Bolt', 'Cleo', 'Dex', 'Echo', 'Fizz'];
+const AI_NAMES_EN = ['Ava', 'Bolt', 'Cleo', 'Dex', 'Echo', 'Fizz'];
+const AI_NAMES_MR = ['आबा', 'बाळू', 'चिनू', 'दादू', 'मनू', 'पिंटू'];
+/** Default names for computer players, in the interface language. */
+const aiNames = () => (getLang() === 'mr' ? AI_NAMES_MR : AI_NAMES_EN);
+const isDefaultName = (name: string) => AI_NAMES_EN.includes(name) || AI_NAMES_MR.includes(name) || /^(Player|खेळाडू) \d$/.test(name);
 
 interface Seat {
   name: string;
@@ -47,10 +54,10 @@ function loadSetup(): { count: number; seats: Seat[]; settings: Partial<Settings
 
 function defaultSeats(): Seat[] {
   return [
-    { name: 'Player 1', token: TOKENS[0], color: COLORS[0], ai: false, difficulty: 'normal' },
-    { name: AI_NAMES[0], token: TOKENS[1], color: COLORS[1], ai: true, difficulty: 'normal' },
-    { name: AI_NAMES[1], token: TOKENS[2], color: COLORS[2], ai: true, difficulty: 'normal' },
-    { name: AI_NAMES[2], token: TOKENS[3], color: COLORS[3], ai: true, difficulty: 'normal' },
+    { name: tr('Player {n}', { n: 1 }), token: TOKENS[0], color: COLORS[0], ai: false, difficulty: 'normal' },
+    { name: aiNames()[0], token: TOKENS[1], color: COLORS[1], ai: true, difficulty: 'normal' },
+    { name: aiNames()[1], token: TOKENS[2], color: COLORS[2], ai: true, difficulty: 'normal' },
+    { name: aiNames()[2], token: TOKENS[3], color: COLORS[3], ai: true, difficulty: 'normal' },
   ];
 }
 
@@ -90,49 +97,58 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
       <div class="setup-bg">${skylineSvg}<div class="stars"></div></div>
       <div class="setup-card">
         <div class="logo"><span class="logo-sky">SKYLINE</span><span class="logo-ty">TYCOON</span></div>
-        <p class="tagline">${escapeHtml(currentEdition().blurb)}</p>
+        <p class="tagline">${escapeHtml(tr(currentEdition().blurb))}</p>
         <div class="setup-actions-top"></div>
-        <div class="section-title">Players</div>
-        <div class="seg count-seg">${[2, 3, 4].map((n) => `<button class="${n === count ? 'on' : ''}" data-count="${n}" aria-label="${n} players">${n}</button>`).join('')}</div>
+        <div class="section-title">${tr('Players')}</div>
+        <div class="seg count-seg">${[2, 3, 4].map((n) => `<button class="${n === count ? 'on' : ''}" data-count="${n}" aria-label="${tr('{n} players', { n })}">${n}</button>`).join('')}</div>
         <div class="seats"></div>
-        <div class="section-title">Board</div>
+        <div class="section-title">${tr('Board')}</div>
         <div class="seg edition-seg">${Object.values(EDITIONS)
-          .map((e) => `<button class="${e.id === settings.edition ? 'on' : ''}" data-edition="${e.id}">${e.label}</button>`)
+          .map((e) => `<button class="${e.id === settings.edition ? 'on' : ''}" data-edition="${e.id}">${tr(e.label)}</button>`)
           .join('')}</div>
-        <p class="edition-note">Same prices and rules, only the names change · ${currentEdition().currency}</p>
-        <div class="section-title">Game mode</div>
+        <p class="edition-note">${tr('Same prices and rules, only the names change')} · ${currentEdition().currency}</p>
+        <div class="section-title">Language · भाषा</div>
+        <div class="seg edition-seg lang-seg">${(
+          [
+            ['en', 'English'],
+            ['mr', 'मराठी'],
+          ] as [Lang, string][]
+        )
+          .map(([id, label]) => `<button class="${id === getLang() ? 'on' : ''}" data-lang="${id}" lang="${id}">${label}</button>`)
+          .join('')}</div>
+        <div class="section-title">${tr('Game mode')}</div>
         <div class="seg edition-seg mode-seg">
-          <button class="${settings.quickStart ? '' : 'on'}" data-mode="classic">🎲 Classic</button>
-          <button class="${settings.quickStart ? 'on' : ''}" data-mode="quick">⚡ Quick game</button>
+          <button class="${settings.quickStart ? '' : 'on'}" data-mode="classic">${tr('🎲 Classic')}</button>
+          <button class="${settings.quickStart ? 'on' : ''}" data-mode="quick">${tr('⚡ Quick game')}</button>
         </div>
-        <p class="edition-note">${settings.quickStart ? 'Everyone starts with 2 random cities. After 15 rounds the richest player wins (about 15–20 minutes).' : 'Play until one player is left, or set a round limit in House rules.'}</p>
+        <p class="edition-note">${settings.quickStart ? tr('Everyone starts with 2 random cities. After 15 rounds the richest player wins (about 15–20 minutes).') : tr('Play until one player is left, or set a round limit in House rules.')}</p>
         <details class="rules-box" ${rulesOpen ? 'open' : ''}>
-          <summary>House rules</summary>
+          <summary>${tr('House rules')}</summary>
           <div class="opts">
-            <label>Starting cash
+            <label>${tr('Starting cash')}
               <select data-opt="startingCash">${[1000, 1500, 2000, 2500].map((v) => `<option value="${v}" ${v === settings.startingCash ? 'selected' : ''}>${money(v)}</option>`).join('')}</select>
             </label>
-            <label>Game length
+            <label>${tr('Game length')}
               <select data-opt="roundLimit">${[
-                [0, 'Until one player remains'],
-                [40, 'Long · 40 rounds'],
-                [25, 'Medium · 25 rounds'],
-                [15, 'Quick · 15 rounds'],
+                [0, tr('Until one player remains')],
+                [40, tr('Long · 40 rounds')],
+                [25, tr('Medium · 25 rounds')],
+                [15, tr('Quick · 15 rounds')],
               ]
                 .map(([v, l]) => `<option value="${v}" ${v === settings.roundLimit ? 'selected' : ''}>${l}</option>`)
                 .join('')}</select>
             </label>
-            <label class="switch"><input type="checkbox" data-opt="auctions" ${settings.auctions ? 'checked' : ''}/><span></span>Auction properties nobody buys</label>
-            <label class="switch"><input type="checkbox" data-opt="jackpot" ${settings.jackpot ? 'checked' : ''}/><span></span>Taxes and fines feed the ${escapeHtml(localize('Sky Lounge'))} jackpot</label>
+            <label class="switch"><input type="checkbox" data-opt="auctions" ${settings.auctions ? 'checked' : ''}/><span></span>${tr('Auction properties nobody buys')}</label>
+            <label class="switch"><input type="checkbox" data-opt="jackpot" ${settings.jackpot ? 'checked' : ''}/><span></span>${tr('Taxes and fines feed the {lounge} jackpot', { lounge: escapeHtml(localize('Sky Lounge')) })}</label>
           </div>
         </details>
-        <button class="btn primary big start-btn">Start game</button>
-        <button class="btn ghost rules-btn">How to play</button>
+        <button class="btn primary big start-btn">${tr('Start game')}</button>
+        <button class="btn ghost rules-btn">${tr('How to play')}</button>
       </div>`;
 
     const top = root.querySelector('.setup-actions-top')!;
     if (opts.hasSave) {
-      const cont = el('button', 'btn gold big', '▶ Continue saved game');
+      const cont = el('button', 'btn gold big', tr('▶ Continue saved game'));
       cont.addEventListener('click', () => {
         unlockAudio();
         opts.onContinue();
@@ -146,24 +162,24 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
       const row = el('div', 'seat');
       row.style.setProperty('--pc', s.color);
       row.innerHTML = `
-        <button class="seat-token" title="Choose token" aria-haspopup="true" aria-expanded="false">${s.token}</button>
-        <input class="seat-name" maxlength="14" value="${escapeHtml(s.name)}" aria-label="Player ${i + 1} name"/>
+        <button class="seat-token" title="${tr('Choose token')}" aria-haspopup="true" aria-expanded="false">${s.token}</button>
+        <input class="seat-name" maxlength="14" value="${escapeHtml(s.name)}" aria-label="${tr('Player {n} name', { n: i + 1 })}"/>
         <div class="seg small type-seg">
-          <button class="${!s.ai ? 'on' : ''}" data-ai="0">👤 Human</button>
-          <button class="${s.ai ? 'on' : ''}" data-ai="1">🤖 AI</button>
+          <button class="${!s.ai ? 'on' : ''}" data-ai="0">${tr('👤 Human')}</button>
+          <button class="${s.ai ? 'on' : ''}" data-ai="1">${tr('🤖 AI')}</button>
         </div>
         ${
           s.ai
-            ? `<select class="seat-diff" aria-label="AI difficulty">${(['easy', 'normal', 'hard'] as Difficulty[])
-                .map((d) => `<option value="${d}" ${d === s.difficulty ? 'selected' : ''}>${d[0].toUpperCase() + d.slice(1)}</option>`)
+            ? `<select class="seat-diff" aria-label="${tr('AI difficulty')}">${(['easy', 'normal', 'hard'] as Difficulty[])
+                .map((d) => `<option value="${d}" ${d === s.difficulty ? 'selected' : ''}>${tr(d[0].toUpperCase() + d.slice(1))}</option>`)
                 .join('')}</select>`
             : ''
         }
-        <div class="token-pick" role="group" aria-label="Player ${i + 1} token" hidden>${TOKENS.map((t) => {
+        <div class="token-pick" role="group" aria-label="${tr('Player {n} token', { n: i + 1 })}" hidden>${TOKENS.map((t) => {
           const taken = seats.slice(0, count).some((x) => x !== s && x.token === t);
-          return `<button data-token="${t}" class="${t === s.token ? 'on' : ''}" ${taken ? 'disabled title="Taken by another player"' : ''} aria-pressed="${t === s.token}">${t}</button>`;
+          return `<button data-token="${t}" class="${t === s.token ? 'on' : ''}" ${taken ? `disabled title="${tr('Taken by another player')}"` : ''} aria-pressed="${t === s.token}">${t}</button>`;
         }).join('')}</div>
-        <div class="color-pick" role="group" aria-label="Player ${i + 1} colour">${COLORS.map((c) => `<button class="${c === s.color ? 'on' : ''}" data-color="${c}" style="--sw:${c}" aria-label="${COLOR_NAMES[COLORS.indexOf(c)]}" aria-pressed="${c === s.color}"></button>`).join('')}</div>`;
+        <div class="color-pick" role="group" aria-label="${tr('Player {n} colour', { n: i + 1 })}">${COLORS.map((c) => `<button class="${c === s.color ? 'on' : ''}" data-color="${c}" style="--sw:${c}" aria-label="${tr(COLOR_NAMES[COLORS.indexOf(c)])}" aria-pressed="${c === s.color}"></button>`).join('')}</div>`;
       row.querySelectorAll<HTMLButtonElement>('[data-color]').forEach((b) =>
         b.addEventListener('click', () => {
           // Colours stay unique: swap with whoever already has it.
@@ -197,11 +213,11 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           const ai = b.dataset.ai === '1';
           if (ai !== s.ai) {
             s.ai = ai;
-            if (ai && /^Player \d$/.test(s.name)) {
+            if (ai && /^(Player|खेळाडू) \d$/.test(s.name)) {
               const used = new Set(seats.slice(0, count).map((x) => x.name));
-              s.name = AI_NAMES.find((n) => !used.has(n)) ?? `Bot ${i + 1}`;
+              s.name = aiNames().find((n) => !used.has(n)) ?? `Bot ${i + 1}`;
             }
-            if (!ai && AI_NAMES.includes(s.name)) s.name = `Player ${i + 1}`;
+            if (!ai && aiNames().includes(s.name)) s.name = tr('Player {n}', { n: i + 1 });
           }
           play('click');
           draw();
@@ -243,13 +259,25 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
         draw();
       }),
     );
-        root.querySelector('.rules-btn')!.addEventListener('click', () => opts.onRules());
+        root.querySelectorAll<HTMLButtonElement>('.lang-seg button').forEach((b) =>
+      b.addEventListener('click', () => {
+        setLang(b.dataset.lang as Lang);
+        applyEdition(settings.edition);
+        // Default names follow the language; names people typed stay as they are.
+        seats.forEach((s, i) => {
+          if (isDefaultName(s.name)) s.name = s.ai ? aiNames()[i === 0 ? 3 : i - 1] : tr('Player {n}', { n: i + 1 });
+        });
+        play('click');
+        draw();
+      }),
+    );
+    root.querySelector('.rules-btn')!.addEventListener('click', () => opts.onRules());
     root.querySelector('.start-btn')!.addEventListener('click', () => {
       unlockAudio();
       play('click');
       const chosen = seats.slice(0, count);
       const players: PlayerConfig[] = chosen.map((s, i) => ({
-        name: s.name.trim() || (s.ai ? AI_NAMES[i] : `Player ${i + 1}`),
+        name: s.name.trim() || (s.ai ? aiNames()[i] : tr('Player {n}', { n: i + 1 })),
         token: s.token,
         color: s.color,
         ai: s.ai,
@@ -285,4 +313,16 @@ const RULES_HTML = `
 </div>`;
 
 /** The rules, worded for the current board edition. */
-export const rulesHtml = () => localize(RULES_HTML);
+export const rulesHtml = () => {
+  if (getLang() !== 'mr') return localize(RULES_HTML);
+  const ed = currentEdition();
+  const fill: Record<string, string> = {
+    jail: TILES[10].name,
+    lounge: TILES[20].name,
+    fortune: ed.decks.fortune,
+    treasury: ed.decks.treasury,
+    transit: localize('Skyports'),
+    fine: money(JAIL_FINE),
+  };
+  return MR_RULES.replace(/\{(\w+)\}/g, (m, k: string) => escapeHtml(fill[k] ?? m));
+};

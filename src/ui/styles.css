@@ -15,7 +15,7 @@
   --tile-line: #2a2f55;
   --radius: 14px;
   --font-display: 'Fredoka', 'Baloo 2', ui-rounded, system-ui, sans-serif;
-  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font: 'Inter', 'Mukta', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
 }
 
@@ -2689,4 +2689,24 @@ body.docked .auction-modal .auction-grid {
 }
 .standings li {
   text-align: left;
+}
+
+/* Marathi: Devanagari needs a little more line height; letter-spacing breaks its joins. */
+:lang(mr) .section-title,
+:lang(mr) .log-title,
+:lang(mr) .fact-t,
+:lang(mr) .deed-kicker {
+  letter-spacing: 0.02em;
+}
+:lang(mr) body,
+:lang(mr) .log,
+:lang(mr) .rules {
+  line-height: 1.5;
+}
+:lang(mr) .card-kind,
+:lang(mr) .card-face,
+:lang(mr) .tile-name,
+:lang(mr) .corner-name,
+:lang(mr) .badge {
+  letter-spacing: 0;
 }
