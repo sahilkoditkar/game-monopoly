@@ -2577,3 +2577,116 @@ body.docked .auction-modal .auction-grid {
   gap: 1px;
   margin-bottom: 6px;
 }
+
+/* ------------------------------------------------------------ insights */
+
+/* Buying advice under the deed */
+.advice {
+  margin: 10px auto 0;
+  max-width: 340px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  text-align: center;
+}
+.auction-side .advice {
+  margin: 6px 0;
+}
+
+/* Trade window: how the computer would answer right now */
+.trade-outlook {
+  font-size: 0.92rem;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.trade-outlook.good {
+  background: rgba(34, 197, 94, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.45);
+}
+.trade-outlook.warn {
+  background: rgba(245, 158, 11, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.45);
+}
+.trade-outlook.bad {
+  background: rgba(239, 68, 68, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.4);
+}
+
+/* Game over: standings with a net-worth line each */
+.standings li {
+  align-items: center;
+  gap: 10px;
+}
+.standings .st-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spark {
+  width: 120px;
+  height: 32px;
+  flex: none;
+  overflow: visible;
+}
+.spark-base {
+  stroke: rgba(255, 255, 255, 0.15);
+  stroke-width: 1;
+}
+.spark-line {
+  fill: none;
+  stroke: #8fb4ff;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.spark-dot {
+  fill: #8fb4ff;
+  stroke: #1a1f5c;
+  stroke-width: 2;
+}
+.spark-note {
+  margin: 6px 0 0;
+}
+@media (max-width: 380px) {
+  .spark {
+    width: 80px;
+  }
+}
+
+/* Game over: fun facts */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+.fact {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.fact-i {
+  font-size: 1.5rem;
+}
+.fact-t {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.fact-d {
+  font-size: 0.9rem;
+}
+.standings li {
+  text-align: left;
+}

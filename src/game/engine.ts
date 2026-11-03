@@ -20,6 +20,7 @@ import type {
   Deck,
   GameEvent,
   GameState,
+  GameStats,
   Player,
   PlayerConfig,
   Settings,
@@ -91,6 +92,7 @@ export class Game {
     for (const deck of ['fortune', 'treasury'] as Deck[]) {
       state.decks[deck] = game.shuffle(CARDS.filter((c) => c.deck === deck).map((c) => c.id));
     }
+    game.stats.worth.push(players.map((p) => game.netWorth(p.id)));
     game.emit({ type: 'turn', player: 0 });
     game.log(`${players[0].name} goes first.`);
     return game;
@@ -197,6 +199,17 @@ export class Game {
   }
 
   /** Total assets: cash plus property and building value at cost (mortgaged at half). */
+  /** End-of-game statistics, created on first use (older saves have none). */
+  get stats(): GameStats {
+    const n = this.state.players.length;
+    this.state.stats ??= { worth: [], rentPaid: Array(n).fill(0), rentGot: Array(n).fill(0), jail: Array(n).fill(0), tileRent: {}, biggest: null };
+    return this.state.stats;
+  }
+
+  private recordWorth() {
+    this.stats.worth.push(this.state.players.map((p) => (p.bankrupt ? 0 : this.netWorth(p.id))));
+  }
+
   netWorth(pid: number): number {
     const p = this.player(pid);
     if (p.bankrupt) return 0;
@@ -325,6 +338,7 @@ export class Game {
     this.emit({ type: 'move', player: p.id, path: [from, JAIL_INDEX], jump: true });
     this.emit({ type: 'jail', player: p.id });
     this.log(`${p.name} was sent to Lockup.`);
+    this.stats.jail[p.id]++;
   }
 
   private moveBy(p: Player, steps: number) {
@@ -360,6 +374,11 @@ export class Game {
           const owner = this.player(own.owner);
           this.log(`${p.name} owes ${owner.name} $${rent} rent for ${tile.name}.`);
           this.charge(p.id, own.owner, rent, `Rent: ${tile.name}`);
+          const st = this.stats;
+          st.rentPaid[p.id] += rent;
+          st.rentGot[own.owner] += rent;
+          st.tileRent[p.pos] = (st.tileRent[p.pos] ?? 0) + rent;
+          if (!st.biggest || rent > st.biggest.amount) st.biggest = { amount: rent, from: p.id, to: own.owner, tile: p.pos };
         }
         break;
       }
@@ -683,7 +702,10 @@ export class Game {
     let next = s.current;
     do next = (next + 1) % s.players.length;
     while (s.players[next].bankrupt);
-    if (next <= s.current) s.round++;
+    if (next <= s.current) {
+      s.round++;
+      this.recordWorth();
+    }
     s.current = next;
     s.turnCount++;
     s.phase = 'roll';
@@ -868,6 +890,7 @@ export class Game {
     if (s.phase === 'gameover') return true;
     const alive = this.activePlayers();
     if (alive.length <= 1) {
+      this.recordWorth();
       s.phase = 'gameover';
       s.winner = alive[0]?.id ?? null;
       this.emit({ type: 'gameover', winner: s.winner });
@@ -880,6 +903,8 @@ export class Game {
   private finishByWorth(early = false) {
     const s = this.state;
     const ranked = this.activePlayers().sort((a, b) => this.netWorth(b.id) - this.netWorth(a.id));
+    // A round-limit finish already recorded this round's values in nextTurn.
+    if (early) this.recordWorth();
     s.phase = 'gameover';
     s.winner = ranked[0].id;
     this.emit({ type: 'gameover', winner: s.winner });

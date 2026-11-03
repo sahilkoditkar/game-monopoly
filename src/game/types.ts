@@ -126,6 +126,18 @@ export interface TradeOffer {
 
 export type Phase = 'roll' | 'buy' | 'auction' | 'debt' | 'end' | 'gameover';
 
+/** Running statistics for the end-of-game summary. */
+export interface GameStats {
+  /** Net worth of every player at the start of each round, plus the final values. */
+  worth: number[][];
+  rentPaid: number[];
+  rentGot: number[];
+  jail: number[];
+  /** Rent earned per tile index. */
+  tileRent: Record<number, number>;
+  biggest: { amount: number; from: number; to: number; tile: number } | null;
+}
+
 export interface GameState {
   version: 1;
   seed: number;
@@ -150,6 +162,8 @@ export interface GameState {
   log: string[];
   /** Last card drawn, for UI display. */
   lastCard: string | null;
+  /** Optional so saves from before stats existed still load. */
+  stats?: GameStats;
 }
 
 export type GameEvent =
