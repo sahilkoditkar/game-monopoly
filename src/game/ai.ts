@@ -124,6 +124,22 @@ export function tradeGains(g: Game, offer: TradeOffer): { from: number; to: numb
   };
 }
 
+/**
+ * How an AI player would answer a trade, for the live hint in the trade window. Mirrors
+ * acceptsTrade: 'yes' means it would accept as it stands.
+ */
+export function tradeOutlook(g: Game, offer: TradeOffer): 'yes' | 'close' | 'no' | 'cash' | 'nothing' {
+  if (g.validateTrade(offer)) return 'nothing';
+  const prof = profileOf(g, offer.to);
+  const gains = tradeGains(g, offer);
+  if (gains.to <= 0) return 'no';
+  const b = g.player(offer.to);
+  if (b.cash - offer.get.cash + offer.give.cash < Math.min(b.cash, prof.reserve)) return 'cash';
+  const need = gains.from * prof.fairness;
+  if (gains.to >= need) return 'yes';
+  return gains.to >= need * 0.7 ? 'close' : 'no';
+}
+
 /** Whether AI player `offer.to` accepts the trade. */
 export function acceptsTrade(g: Game, offer: TradeOffer): boolean {
   if (g.validateTrade(offer)) return false;

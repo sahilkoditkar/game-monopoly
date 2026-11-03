@@ -1,5 +1,5 @@
-import { acceptsTrade, apply, decide, fallback, newMemory, type AiMemory } from '../game/ai';
-import { BUYABLE, GROUPS, JAIL_FINE, JAIL_INDEX, TILES, houseCost, mortgageValue, unmortgageCost } from '../game/board';
+import { acceptsTrade, apply, decide, fallback, newMemory, tradeOutlook, type AiMemory } from '../game/ai';
+import { BUYABLE, GROUPS, JAIL_FINE, JAIL_INDEX, TILES, TRANSIT_RENTS, groupTiles, houseCost, mortgageValue, unmortgageCost } from '../game/board';
 import { CARD_BY_ID } from '../game/cards';
 import { capitalize, currentEdition, localize } from '../game/editions';
 import { Game } from '../game/engine';
@@ -769,6 +769,8 @@ export class GameApp {
         ? `You have ${money(p.cash)}. Mortgage or sell to raise ${money(tile.price! - p.cash)} more, or let it go to auction.`
         : `You have <b>${money(p.cash)}</b>. After buying: <b>${money(p.cash - tile.price!)}</b>`);
       m.body.appendChild(info);
+      const advice = this.buyAdvice(p.id, p.pos);
+      if (advice) m.body.appendChild(el('div', 'advice', advice));
       const row = el('div', 'modal-actions');
       row.appendChild(button(`Buy for ${money(tile.price!)}`, 'primary', () => this.act(() => this.game.buy()), short));
       row.appendChild(button(this.s.settings.auctions ? '🔨 Auction' : 'Pass', 'ghost', () => this.act(() => this.game.decline())));
@@ -777,6 +779,35 @@ export class GameApp {
     };
     update();
     this.phaseModal = { key, handle: m, update };
+  }
+
+  /** One line on what owning `tile` would mean for `pid`: completing a set, blocking a rival, etc. */
+  private buyAdvice(pid: number, tile: number): string {
+    const t = TILES[tile];
+    const owner = (i: number) => this.s.props[i]?.owner ?? null;
+    if (t.kind === 'property' && t.group) {
+      const g = GROUPS[t.group];
+      const tiles = groupTiles(t.group);
+      const mine = tiles.filter((i) => owner(i) === pid).length + 1;
+      const set = `<b style="color:${g.color}">${escapeHtml(g.name)}</b>`;
+      if (mine === tiles.length) return `⭐ Completes your ${set} set. Rent doubles and you can build!`;
+      // A rival who owns every other city in this set would be blocked.
+      const others = tiles.filter((i) => i !== tile && owner(i) !== pid).map(owner);
+      const rival = others.length && others.every((o) => o !== null && o === others[0]) ? this.game.player(others[0]!) : null;
+      if (rival && mine === 1) return `🛡️ Blocks <b>${escapeHtml(rival.name)}</b> from completing ${set}.`;
+      const taken = tiles.filter((i) => owner(i) !== null && owner(i) !== pid);
+      if (taken.length) return `You'd own ${mine} of ${tiles.length} ${set}. ${taken.map((i) => `${escapeHtml(TILES[i].name)} belongs to ${escapeHtml(this.game.player(owner(i)!).name)}`).join(', ')}.`;
+      return `You'd own ${mine} of ${tiles.length} ${set}. Nobody else owns any yet.`;
+    }
+    if (t.kind === 'transit') {
+      const n = BUYABLE.filter((i) => TILES[i].kind === 'transit' && owner(i) === pid).length + 1;
+      return `${t.icon} You'd own ${n} of 4 ${escapeHtml(localize('Skyports'))}: rent ${money(TRANSIT_RENTS[n - 1])} per visit.`;
+    }
+    if (t.kind === 'utility') {
+      const both = BUYABLE.some((i) => i !== tile && TILES[i].kind === 'utility' && owner(i) === pid);
+      return both ? '⚡ Both utilities: rent becomes 10× the dice roll.' : '⚡ Rent is 4× the dice roll, or 10× with both utilities.';
+    }
+    return '';
   }
 
   private openAuction(key: string) {
@@ -808,6 +839,8 @@ export class GameApp {
         side.appendChild(el('div', 'thinking', `<span class="dot-pulse" style="--pc:${actor.color}"></span> ${escapeHtml(actor.name)} is thinking…`));
       } else if (!this.busy) {
         const canBid = actor.cash >= min;
+        const advice = this.buyAdvice(actor.id, a.tile);
+        if (advice) side.appendChild(el('div', 'advice', advice));
         side.appendChild(el('div', 'bid-turn', `<b>${escapeHtml(actor.name)}</b>, your bid:`));
         const stepper = el('div', 'stepper');
         const minus = button('−10', 'ghost small', () => {
@@ -1121,7 +1154,18 @@ export class GameApp {
       footer.innerHTML = '';
       const offer: TradeOffer = { from: pid, to: partner, give, get };
       const err = this.game.validateTrade(offer);
-      footer.appendChild(el('div', 'trade-msg muted small', err ? escapeHtml(err) : 'Ready to send'));
+      const target = this.game.player(partner);
+      if (!err && target.ai) {
+        const name = `<b>${escapeHtml(target.name)}</b>`;
+        const view = {
+          yes: ['good', '✅', `${name} would accept this.`],
+          close: ['warn', '🤔', `Close. ${name} wants a little more.`],
+          no: ['bad', '❌', `${name} would turn this down.`],
+          cash: ['bad', '💸', `${name} can't spare that much cash.`],
+          nothing: ['', '', ''],
+        }[tradeOutlook(this.game, offer)];
+        footer.appendChild(el('div', `trade-outlook ${view[0]}`, `${view[1]} ${view[2]}`));
+      } else footer.appendChild(el('div', 'trade-msg muted small', err ? escapeHtml(err) : 'Ready to send'));
       footer.appendChild(button('Propose trade', 'primary', () => void propose(offer), !!err || this.busy || !this.game.canTradeNow(pid)));
     };
 
@@ -1252,6 +1296,58 @@ export class GameApp {
     m.body.appendChild(list);
   }
 
+  /**
+   * Final standings, each with a small net-worth line over the rounds. Every line shares one
+   * scale so they compare directly; one line per row means players never have to be told
+   * apart by colour alone.
+   */
+  private standingsHtml(ranked: Player[]): string {
+    const worth = this.game.stats.worth;
+    const max = Math.max(1, ...worth.flat());
+    const W = 120;
+    const H = 32;
+    const spark = (pid: number) => {
+      const pts = worth.map((row, r) => [worth.length > 1 ? (r / (worth.length - 1)) * W : W / 2, H - 3 - (row[pid] / max) * (H - 6)] as const);
+      if (!pts.length) return '';
+      const line = pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join('');
+      const [ex, ey] = pts[pts.length - 1];
+      const step = W / Math.max(1, worth.length - 1);
+      const hits = worth
+        .map((row, r) => `<rect x="${Math.max(0, pts[r][0] - step / 2).toFixed(1)}" y="0" width="${step.toFixed(1)}" height="${H}" fill="transparent"><title>${r === 0 ? 'Start' : r === worth.length - 1 ? 'End' : `Round ${r + 1}`}: ${money(row[pid])}</title></rect>`)
+        .join('');
+      return `<svg class="spark" viewBox="-5 0 ${W + 10} ${H}" role="img" aria-label="Net worth over the game">
+        <line x1="0" x2="${W}" y1="${H - 3}" y2="${H - 3}" class="spark-base"/>
+        <path d="${line}" class="spark-line"/>
+        <circle cx="${ex}" cy="${ey}" r="4" class="spark-dot"/>${hits}</svg>`;
+    };
+    return `<ol class="standings">${ranked
+      .map(
+        (p) => `<li style="--pc:${p.color}" class="${p.bankrupt ? 'out' : ''}">
+          <span class="st-name">${p.token} ${escapeHtml(p.name)}</span>${spark(p.id)}
+          <b>${p.bankrupt ? 'Bankrupt' : money(this.game.netWorth(p.id))}</b></li>`,
+      )
+      .join('')}</ol>
+      <p class="muted small center spark-note">Lines show each player's net worth across the game, on the same scale.</p>`;
+  }
+
+  /** Fun facts for the end screen. */
+  private statsHtml(): string {
+    const st = this.game.stats;
+    const ps = this.s.players;
+    const who = (id: number) => `${ps[id].token} ${escapeHtml(ps[id].name)}`;
+    const top = (arr: number[]) => arr.reduce((b, v, i) => (v > arr[b] ? i : b), 0);
+    const facts: [string, string, string][] = [];
+    const rk = top(st.rentGot);
+    if (st.rentGot[rk] > 0) facts.push(['💰', 'Rent king', `${who(rk)} collected ${money(st.rentGot[rk])}`]);
+    const best = Object.entries(st.tileRent).sort((a, b) => b[1] - a[1])[0];
+    if (best) facts.push(['🏙️', 'Best property', `${TILES[+best[0]].icon} ${escapeHtml(TILES[+best[0]].name)} earned ${money(best[1])}`]);
+    if (st.biggest) facts.push(['💥', 'Biggest hit', `${who(st.biggest.from)} paid ${money(st.biggest.amount)} at ${escapeHtml(TILES[st.biggest.tile].name)}`]);
+    const jb = top(st.jail);
+    if (st.jail[jb] > 0) facts.push(['🔒', 'Jailbird', `${who(jb)}, ${st.jail[jb]} time${st.jail[jb] === 1 ? '' : 's'}`]);
+    if (!facts.length) return '';
+    return `<div class="facts">${facts.map(([i, t, d]) => `<div class="fact"><div class="fact-i">${i}</div><div><div class="fact-t">${t}</div><div class="fact-d">${d}</div></div></div>`).join('')}</div>`;
+  }
+
   private showGameOver() {
     const s = this.s;
     clearSave();
@@ -1269,9 +1365,8 @@ export class GameApp {
       <div class="trophy">🏆</div>
       <div class="winner" style="--pc:${w.color}">${w.token} ${escapeHtml(w.name)} wins!</div>
       <p class="muted center">Finished in ${s.round} round${s.round === 1 ? '' : 's'}</p>
-      <ol class="standings">${ranked
-        .map((p) => `<li style="--pc:${p.color}" class="${p.bankrupt ? 'out' : ''}"><span>${p.token} ${escapeHtml(p.name)}</span><b>${p.bankrupt ? 'Bankrupt' : money(this.game.netWorth(p.id))}</b></li>`)
-        .join('')}</ol>`;
+      ${this.standingsHtml(ranked)}
+      ${this.statsHtml()}`;
     const row = el('div', 'modal-actions');
     row.appendChild(
       button('🔁 Play again', 'primary', () => {
