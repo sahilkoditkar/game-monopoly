@@ -43,6 +43,7 @@ npm install
 npm run dev      # local dev server
 npm test         # rules, AI and random-play tests
 npm run build    # type-check and build to dist/
+npm run e2e      # browser smoke tests on phone, phone-landscape and laptop (after build)
 ```
 
 The AI win-rate report used for tuning:
@@ -66,6 +67,6 @@ STATS=1 npx vitest run tests/stats.test.ts
 ## Workflow and deployment
 
 - `main` holds released code. Each feature is built on its own branch and merged through a pull request.
-- The **CI** workflow runs tests and a build on every pull request.
+- The **CI** workflow runs the unit tests, a build and the browser smoke tests (`e2e/`) on every pull request. A failing browser test uploads screenshots and traces.
 - The **Deploy to GitHub Pages** workflow runs on every push to `main`. It builds the site and publishes `dist/` to the `gh-pages` branch.
 - One-time setup: in **Settings → Pages**, set the source to **Deploy from a branch**, branch `gh-pages`, folder `/ (root)`.
