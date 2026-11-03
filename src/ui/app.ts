@@ -859,10 +859,15 @@ export class GameApp {
       const a = this.s.auction;
       if (!a) return;
       const actor = this.game.player(a.active[a.turn]);
+      // The person at this device: the bidder now, or a human waiting for their next go.
+      const me = actor.ai ? a.active.map((id) => this.game.player(id)).find((p) => !p.ai) : actor;
       const leader = a.bidder !== null ? this.game.player(a.bidder) : null;
       const min = this.game.minBid();
       if (draft < min) draft = min;
-      if (draft > actor.cash) draft = Math.max(min, actor.cash);
+      if (me && draft > me.cash) draft = Math.max(min, me.cash);
+      // Rebuilding the panel must not throw away the player's scroll position.
+      const scroller = m.root.querySelector<HTMLElement>('.modal');
+      const scrollTop = scroller?.scrollTop ?? 0;
       m.body.innerHTML = '';
       const wrap = el('div', 'auction-grid');
       wrap.appendChild(deedCard(this.s, a.tile));
@@ -879,31 +884,44 @@ export class GameApp {
           .join('')}</div>`;
       if (actor.ai) {
         side.appendChild(el('div', 'thinking', `<span class="dot-pulse" style="--pc:${actor.color}"></span> ${tr('{name} is thinking…', { name: escapeHtml(actor.name) })}`));
-      } else if (!this.busy) {
-        const canBid = actor.cash >= min;
-        const advice = this.buyAdvice(actor.id, a.tile);
+      }
+      // While someone else bids, a human still in the auction keeps their (disabled) controls,
+      // so the panel doesn't shrink and jump back to the top.
+      let row: HTMLElement | null = null;
+      if (me) {
+        const myTurn = me === actor && !this.busy;
+        const advice = this.buyAdvice(me.id, a.tile);
         if (advice) side.appendChild(el('div', 'advice', advice));
-        side.appendChild(el('div', 'bid-turn', tr('{name}, your bid:', { name: `<b>${escapeHtml(actor.name)}</b>` })));
+        if (!actor.ai) side.appendChild(el('div', 'bid-turn', tr('{name}, your bid:', { name: `<b>${escapeHtml(me.name)}</b>` })));
         const stepper = el('div', 'stepper');
         const minus = button('−10', 'ghost small', () => {
           draft = Math.max(min, draft - 10);
           update();
-        });
+        }, !myTurn);
         const val = el('div', 'stepper-val', money(draft));
         const plus = (n: number) =>
           button(`+${n}`, 'ghost small', () => {
-            draft = Math.min(actor.cash, draft + n);
+            draft = Math.min(me.cash, draft + n);
             update();
-          });
+          }, !myTurn);
         stepper.append(minus, val, plus(10), plus(50), plus(100));
         side.appendChild(stepper);
-        const row = el('div', 'modal-actions');
-        row.appendChild(button(tr('Bid {amount}', { amount: money(draft) }), 'primary', () => this.act(() => this.game.bid(actor.id, draft)), !canBid));
-        row.appendChild(button(tr('Drop out'), 'ghost', () => this.act(() => this.game.passBid(actor.id))));
+        row = el('div', 'modal-actions');
+        row.appendChild(button(tr('Bid {amount}', { amount: money(draft) }), 'primary', () => this.act(() => this.game.bid(me.id, draft)), !myTurn || me.cash < min));
+        row.appendChild(button(tr('Drop out'), 'ghost', () => this.act(() => this.game.passBid(me.id)), !myTurn));
         side.appendChild(row);
       }
       wrap.appendChild(side);
       m.body.appendChild(wrap);
+      if (scroller) {
+        scroller.scrollTop = scrollTop;
+        // When it comes back to you, make sure the Bid buttons are on screen.
+        if (row && me === actor && scroller.scrollHeight > scroller.clientHeight) {
+          const r = row.getBoundingClientRect();
+          const box = scroller.getBoundingClientRect();
+          if (r.bottom > box.bottom) scroller.scrollTop += r.bottom - box.bottom + 12;
+        }
+      }
     };
     update();
     this.phaseModal = { key, handle: m, update };
