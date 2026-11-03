@@ -1,7 +1,6 @@
 import type { Difficulty, PlayerConfig, Settings } from '../game/types';
 import { EDITIONS, applyEdition, currentEdition, localize, type EditionId } from '../game/editions';
-import { getLang, setLang, tr, type Lang } from '../i18n';
-import { MR_RULES } from '../i18n/mr';
+import { LANGS, allPacks, getLang, pack, setLang, tr, type Lang } from '../i18n';
 import { JAIL_FINE, TILES } from '../game/board';
 import { el, escapeHtml, money } from './fx';
 import { play, unlockAudio } from './sound';
@@ -16,10 +15,10 @@ export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑',
 export const COLORS = ['#8d354b', '#2a6f6b', '#8d8435', '#212529', '#256105'];
 const COLOR_NAMES = ['Burgundy', 'Deep teal', 'Olive', 'Charcoal', 'Forest green'];
 const AI_NAMES_EN = ['Ava', 'Bolt', 'Cleo', 'Dex', 'Echo', 'Fizz'];
-const AI_NAMES_MR = ['आबा', 'बाळू', 'चिनू', 'दादू', 'मनू', 'पिंटू'];
 /** Default names for computer players, in the interface language. */
-const aiNames = () => (getLang() === 'mr' ? AI_NAMES_MR : AI_NAMES_EN);
-const isDefaultName = (name: string) => AI_NAMES_EN.includes(name) || AI_NAMES_MR.includes(name) || /^(Player|खेळाडू) \d$/.test(name);
+const aiNames = () => pack()?.ai ?? AI_NAMES_EN;
+const isDefaultName = (name: string) =>
+  /^Player \d$/.test(name) || AI_NAMES_EN.includes(name) || allPacks().some((p) => p.ai.includes(name) || new RegExp(`^${p.player} \\d$`).test(name));
 
 interface Seat {
   name: string;
@@ -108,13 +107,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           .join('')}</div>
         <p class="edition-note">${tr('Same prices and rules, only the names change')} · ${currentEdition().currency}</p>
         <div class="section-title">Language · भाषा</div>
-        <div class="seg edition-seg lang-seg">${(
-          [
-            ['en', 'English'],
-            ['mr', 'मराठी'],
-          ] as [Lang, string][]
-        )
-          .map(([id, label]) => `<button class="${id === getLang() ? 'on' : ''}" data-lang="${id}" lang="${id}">${label}</button>`)
+        <div class="seg edition-seg lang-seg">${LANGS.map(([id, label]) => `<button class="${id === getLang() ? 'on' : ''}" data-lang="${id}" lang="${id}">${label}</button>`)
           .join('')}</div>
         <div class="section-title">${tr('Game mode')}</div>
         <div class="seg edition-seg mode-seg">
@@ -213,7 +206,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           const ai = b.dataset.ai === '1';
           if (ai !== s.ai) {
             s.ai = ai;
-            if (ai && /^(Player|खेळाडू) \d$/.test(s.name)) {
+            if (ai && isDefaultName(s.name) && !aiNames().includes(s.name)) {
               const used = new Set(seats.slice(0, count).map((x) => x.name));
               s.name = aiNames().find((n) => !used.has(n)) ?? `Bot ${i + 1}`;
             }
@@ -314,7 +307,8 @@ const RULES_HTML = `
 
 /** The rules, worded for the current board edition. */
 export const rulesHtml = () => {
-  if (getLang() !== 'mr') return localize(RULES_HTML);
+  const lp = pack();
+  if (!lp) return localize(RULES_HTML);
   const ed = currentEdition();
   const fill: Record<string, string> = {
     jail: TILES[10].name,
@@ -324,5 +318,5 @@ export const rulesHtml = () => {
     transit: localize('Skyports'),
     fine: money(JAIL_FINE),
   };
-  return MR_RULES.replace(/\{(\w+)\}/g, (m, k: string) => escapeHtml(fill[k] ?? m));
+  return lp.rules.replace(/\{(\w+)\}/g, (m, k: string) => escapeHtml(fill[k] ?? m));
 };

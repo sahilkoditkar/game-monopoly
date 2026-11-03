@@ -1340,7 +1340,7 @@ export class GameApp {
     const top = (arr: number[]) => arr.reduce((b, v, i) => (v > arr[b] ? i : b), 0);
     const facts: [string, string, string][] = [];
     const rk = top(st.rentGot);
-    if (st.rentGot[rk] > 0) facts.push(['💰', tr('Rent king'), tr('{name} collected {amount}', { name: who(rk), amount: money(st.rentGot[rk]) })]);
+    if (st.rentGot[rk] > 0) facts.push(['💰', tr('Most rent collected'), tr('{name} collected {amount}', { name: who(rk), amount: money(st.rentGot[rk]) })]);
     const best = Object.entries(st.tileRent).sort((a, b) => b[1] - a[1])[0];
     if (best) facts.push(['🏙️', tr('Best property'), tr('{tile} earned {amount}', { tile: `${TILES[+best[0]].icon} ${escapeHtml(TILES[+best[0]].name)}`, amount: money(best[1]) })]);
     if (st.biggest) facts.push(['💥', tr('Biggest hit'), tr('{name} paid {amount} at {tile}', { name: who(st.biggest.from), amount: money(st.biggest.amount), tile: escapeHtml(TILES[st.biggest.tile].name) })]);

@@ -2692,21 +2692,21 @@ body.docked .auction-modal .auction-grid {
 }
 
 /* Marathi: Devanagari needs a little more line height; letter-spacing breaks its joins. */
-:lang(mr) .section-title,
-:lang(mr) .log-title,
-:lang(mr) .fact-t,
-:lang(mr) .deed-kicker {
+:is(:lang(mr), :lang(hi)) .section-title,
+:is(:lang(mr), :lang(hi)) .log-title,
+:is(:lang(mr), :lang(hi)) .fact-t,
+:is(:lang(mr), :lang(hi)) .deed-kicker {
   letter-spacing: 0.02em;
 }
-:lang(mr) body,
-:lang(mr) .log,
-:lang(mr) .rules {
+:is(:lang(mr), :lang(hi)) body,
+:is(:lang(mr), :lang(hi)) .log,
+:is(:lang(mr), :lang(hi)) .rules {
   line-height: 1.5;
 }
-:lang(mr) .card-kind,
-:lang(mr) .card-face,
-:lang(mr) .tile-name,
-:lang(mr) .corner-name,
-:lang(mr) .badge {
+:is(:lang(mr), :lang(hi)) .card-kind,
+:is(:lang(mr), :lang(hi)) .card-face,
+:is(:lang(mr), :lang(hi)) .tile-name,
+:is(:lang(mr), :lang(hi)) .corner-name,
+:is(:lang(mr), :lang(hi)) .badge {
   letter-spacing: 0;
 }

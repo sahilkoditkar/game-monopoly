@@ -1,7 +1,8 @@
 /**
  * Marathi (मराठी) text. Keys are the English strings used in the UI, with the same
- * {placeholders}. Players are referred to with the respectful plural verb forms
- * (आहेत, झाले, केले), which is natural Marathi and never assumes anyone's gender.
+ * {placeholders}. Marathi past tense carries gender, so sentences about a player use
+ * forms that don't: present tense (आहेत), यांनी + object, or a noun (विजय, दिवाळखोरी,
+ * सुटका). The text never assumes anyone's gender.
  */
 export const MR: Record<string, string> = {
   // setup
@@ -100,7 +101,7 @@ export const MR: Record<string, string> = {
   AI: 'संगणक',
   Bankrupt: 'दिवाळखोर',
   'No properties yet': 'अजून मालमत्ता नाही',
-  '🏆 {name} wins!': '🏆 {name} जिंकले!',
+  '🏆 {name} wins!': '🏆 {name} यांचा विजय!',
   'Game over': 'खेळ संपला',
   'New game': 'नवा खेळ',
   '{name} is playing…': '{name} खेळत आहेत…',
@@ -135,7 +136,7 @@ export const MR: Record<string, string> = {
   '🔨 No bids for {tile}': '🔨 {tile} साठी बोली नाही',
   '⭐ {name} owns all of {set}!': '⭐ संपूर्ण {set} आता {name} यांचे!',
   'JACKPOT {amount}!': 'जॅकपॉट {amount}!',
-  '💥 {name} went bankrupt!': '💥 {name} दिवाळखोर झाले!',
+  '💥 {name} went bankrupt!': '💥 {name} यांची दिवाळखोरी!',
   '🤝 {a} and {b} made a trade': '🤝 {a} आणि {b} यांनी व्यवहार केला',
   card: 'कार्ड',
   OK: 'ठीक आहे',
@@ -231,7 +232,7 @@ export const MR: Record<string, string> = {
   '🔊 Sound effects': '🔊 आवाज',
   '🎬 Animation speed': '🎬 हालचालींचा वेग',
   "⏩ Speed up computer players' turns": '⏩ संगणक खेळाडूंच्या पाळ्या जलद करा',
-  '🎯 Show where I can land': '🎯 मी कुठे पोहोचू शकतो ते दाखवा',
+  '🎯 Show where I can land': '🎯 पुढच्या चालीची पोहोच दाखवा',
   '🧊 Tilted 3D board': '🧊 तिरका 3D बोर्ड',
   '🏁 End game now (richest wins)': '🏁 आत्ताच खेळ संपवा (सर्वात श्रीमंत जिंकतो)',
   'End the game now? The player with the highest net worth wins.': 'आत्ताच खेळ संपवायचा? सर्वाधिक संपत्ती असलेला खेळाडू जिंकतो.',
@@ -242,7 +243,7 @@ export const MR: Record<string, string> = {
   End: 'शेवट',
   'Net worth over the game': 'खेळातील संपत्तीचा आलेख',
   "Lines show each player's net worth across the game, on the same scale.": 'रेषा प्रत्येक खेळाडूची संपूर्ण खेळातील संपत्ती एकाच प्रमाणावर दाखवतात.',
-  'Rent king': 'भाड्याचे राजे',
+  'Most rent collected': 'सर्वाधिक भाडे',
   '{name} collected {amount}': '{name} यांनी {amount} भाडे घेतले',
   'Best property': 'सर्वोत्तम मालमत्ता',
   '{tile} earned {amount}': '{tile} ने {amount} कमावले',
@@ -251,7 +252,7 @@ export const MR: Record<string, string> = {
   Jailbird: 'तुरुंगाचे पाहुणे',
   '{name}, 1 time': '{name}, 1 वेळा',
   '{name}, {n} times': '{name}, {n} वेळा',
-  '{name} wins!': '{name} जिंकले!',
+  '{name} wins!': '{name} यांचा विजय!',
   'Finished in 1 round': '1 फेरीत संपला',
   'Finished in {n} rounds': '{n} फेऱ्यांत संपला',
   '🔁 Play again': '🔁 पुन्हा खेळा',
@@ -295,9 +296,9 @@ export const MR_LOG: [RegExp, string][] = [
   [/^(.+) drew "(.+)": (.+)$/, '$1 यांनी "$2" कार्ड काढले: $3'],
   [/^(.+) has no buildings, so nothing is owed\.$/, '$1 यांच्याकडे इमारती नाहीत, त्यामुळे काही देणे नाही.'],
   [/^(.+) hit the (.+) jackpot: (.+)!$/, '$1 यांना $2 जॅकपॉट लागला: $3!'],
-  [/^(.+) landed on their own (.+)\.$/, '$1 स्वतःच्याच $2 वर आले.'],
-  [/^(.+) left (.+) \(paid (\D?\d+)\)\.$/, '$1 $3 भरून $2मधून सुटले.'],
-  [/^(.+) left (.+) \((.+)\)\.$/, '$1 $3 $2मधून सुटले.'],
+  [/^(.+) landed on their own (.+)\.$/, '$1 यांची सोंगटी स्वतःच्याच $2 वर.'],
+  [/^(.+) left (.+) \(paid (\D?\d+)\)\.$/, '$1 यांची $2मधून सुटका ($3 भरून).'],
+  [/^(.+) left (.+) \((.+)\)\.$/, '$1 यांची $2मधून सुटका ($3).'],
   [/^(.+) must pay the (.+) fine after three tries\.$/, '$1 यांना तीन प्रयत्नांनंतर $2 दंड भरावा लागेल.'],
   [/^(.+) owes (.+) (\S+) rent for (.+)\.$/, '$1 यांना $2 यांना $4 चे $3 भाडे द्यायचे आहे.'],
   [/^(.+) passed the (.+) and collected (.+)\.$/, '$1 यांनी $2 पार केले आणि $3 मिळवले.'],
@@ -311,23 +312,23 @@ export const MR_LOG: [RegExp, string][] = [
   [/^(.+) bids (\S+)\.$/, '$1 यांची बोली $2.'],
   [/^(.+) built a hotel on (.+)\.$/, '$1 यांनी $2 वर हॉटेल बांधले.'],
   [/^(.+) built a house on (.+)\.$/, '$1 यांनी $2 वर घर बांधले.'],
-  [/^(.+) drops out of the auction\.$/, '$1 लिलावातून बाहेर पडले.'],
+  [/^(.+) drops out of the auction\.$/, '$1 यांनी लिलाव सोडला.'],
   [/^(.+) mortgaged (.+) for (\S+)\.$/, '$1 यांनी $2 $3 ला गहाण ठेवले.'],
-  [/^(.+) owns all of (.+)! Rents double and building is unlocked\.$/, 'संपूर्ण $2 आता $1 यांचे! भाडे दुप्पट आणि बांधकाम सुरू.'],
+  [/^(.+) owns all of (.+)! Rents double and building is unlocked\.$/, '$1 यांच्याकडे संपूर्ण $2! भाडे दुप्पट आणि बांधकाम सुरू.'],
   [/^(.+) paid off the mortgage on (.+)\.$/, '$1 यांनी $2 चे गहाण सोडवले.'],
   [/^(.+) sold a building on (.+)\.$/, '$1 यांनी $2 वरची एक इमारत विकली.'],
   [/^(.+) pays (\S+) (.+)\.$/, '$1 यांनी $2 $3 भरला.'],
   [/^(.+) goes up for auction!$/, '$1 चा लिलाव सुरू!'],
   [/^(.+) is mortgaged, so no rent is due\.$/, '$1 गहाण आहे, त्यामुळे भाडे नाही.'],
-  [/^(Game ended early\.|Round limit reached\.) 🏆 (.+) wins with a net worth of (.+)!$/, '$1 🏆 $2 एकूण $3 संपत्तीसह जिंकले!'],
+  [/^(Game ended early\.|Round limit reached\.) 🏆 (.+) wins with a net worth of (.+)!$/, '$1 🏆 एकूण $3 संपत्तीसह विजय $2 यांचा!'],
   [/^Nobody bid on (.+)\.$/, '$1 साठी कोणीही बोली लावली नाही.'],
   [/^🏆 (.+) wins the game!$/, '🏆 $1 यांनी खेळ जिंकला!'],
   [/^Quick start: (.+) gets (.+) and (.+)\.$/, 'झटपट सुरुवात: $1 यांना $2 आणि $3 मिळाले.'],
   [/^Rent: (.+)$/, '$1 चे भाडे'],
   [/^(.+) fine$/, '$1 दंड'],
   [/^Own all (\d) (.+) cities to build\. Missing: (.+)\.$/, 'बांधकामासाठी $2 संचातील सर्व $1 शहरे तुमची हवीत. बाकी: $3.'],
-  [/^(.+) is bankrupt! (.+) takes everything\.$/, '$1 दिवाळखोर झाले! सर्व काही $2 यांना मिळाले.'],
-  [/^(.+) is bankrupt! Their properties return to the bank\.$/, '$1 दिवाळखोर झाले! त्यांच्या मालमत्ता बँकेकडे परत गेल्या.'],
+  [/^(.+) is bankrupt! (.+) takes everything\.$/, '$1 यांची दिवाळखोरी! सर्व काही $2 यांना मिळाले.'],
+  [/^(.+) is bankrupt! Their properties return to the bank\.$/, '$1 यांची दिवाळखोरी! त्यांच्या मालमत्ता बँकेकडे परत गेल्या.'],
   [/^You need (\S+) to build here\.$/, 'इथे बांधण्यासाठी $1 लागतील.'],
   [/^(.+) doesn't have that much cash\.$/, '$1 यांच्याकडे इतकी रोकड नाही.'],
   [/^(.+) doesn't have that many get-out cards\.$/, '$1 यांच्याकडे इतकी सुटकेची कार्डे नाहीत.'],
@@ -362,7 +363,7 @@ export const MR_CARDS: Record<string, [string, string]> = {
   t4: ['स्नीकर्सची विक्री', 'तुम्ही दुर्मीळ स्नीकर्स विकले. {m45} घ्या.'],
   t5: ['चांगला वकील', 'हे कार्ड जपून ठेवा. {t10}मधून मोफत सुटण्यासाठी वापरा.'],
   t6: ['ऑडिट फसले', 'थेट {t10}मध्ये जा. {t0} पार करू नका.'],
-  t7: ['वाढदिवसाची पार्टी', 'प्रत्येक खेळाडू तुम्हाला {m10} देतो.'],
+  t7: ['वाढदिवसाची पार्टी', 'प्रत्येक खेळाडूकडून {m10} घ्या.'],
   t8: ['वारसा', 'दूरच्या मावशीने तुमच्यासाठी {m100} ठेवले.'],
   t9: ['दवाखान्याचे बिल', '{m100} भरा.'],
   t10: ['रात्रीचे क्लास', 'फीचे {m50} भरा.'],
@@ -393,7 +394,7 @@ export const MR_RULES = `
   <p class="muted">टीप: मालकी पत्र पाहण्यासाठी कोणत्याही घरावर टॅप करा. खेळ आपोआप जतन होतो, त्यामुळे टॅब बंद करून नंतर पुढे खेळता येते.</p>
 </div>`;
 
-type Names = { label?: string; tiles: Record<number, [string, string]>; groups: Record<string, string>; decks: { fortune: string; treasury: string }; words: [string, string][] };
+export type Names = { label?: string; tiles: Record<number, [string, string]>; groups: Record<string, string>; decks: { fortune: string; treasury: string }; words: [string, string][] };
 
 /** Board names in Devanagari for each edition. Icons, prices and rules are unchanged. */
 export const MR_NAMES: Record<string, Names> = {

@@ -135,14 +135,17 @@ test('quick game deals two cities to everyone', async ({ page }) => {
   await expect(page.locator('.round-pill')).toContainText('/ 15');
 });
 
-test('Marathi shows Marathi everywhere, with no English left on screen', async ({ page }) => {
+for (const L of [
+  { lang: 'mr', name: 'Marathi', goal: 'ध्येय', roll: 'फासे', end: 'पाळी संपवा' },
+  { lang: 'hi', name: 'Hindi', goal: 'लक्ष्य', roll: 'पासे', end: 'बारी ख़त्म' },
+]) test(`${L.name} shows everywhere, with no English left on screen`, async ({ page }) => {
   const errors = watchErrors(page);
   await open(page);
-  await page.click('.lang-seg [data-lang="mr"]');
+  await page.click(`.lang-seg [data-lang="${L.lang}"]`);
   await page.click('.edition-seg [data-edition="maharashtra"]');
   await page.click('.rules-btn');
   const rules = page.locator('.rules-modal.open .rules');
-  await expect(rules).toContainText('ध्येय');
+  await expect(rules).toContainText(L.goal);
   expect(await rules.innerText()).not.toMatch(/[{}]|[A-Za-z]{3,}/);
   await page.keyboard.press('Escape');
   await page.click(`.count-seg [data-count="3"]`);
@@ -151,7 +154,7 @@ test('Marathi shows Marathi everywhere, with no English left on screen', async (
   await page.locator('.seat [data-ai="1"]').nth(2).click();
   await page.click('.start-btn');
   await expect(page.locator('.tile[data-index="39"]')).toContainText('मुंबई');
-  // Play a few turns by the Marathi button labels.
+  // Play a few turns by the translated button labels.
   for (let i = 0, rolls = 0; i < 400 && rolls < 4; i++) {
     const tap = (sel: string) => page.locator(sel).first().click({ timeout: 3000 }).catch(() => {});
     if (await page.$('.card-modal.open .card-ok')) await tap('.card-ok');
@@ -162,10 +165,10 @@ test('Marathi shows Marathi everywhere, with no English left on screen', async (
     else {
       const main = page.locator('.controls .ctrl-row:not(.small) button.primary').first();
       const label = (await main.count()) ? ((await main.textContent()) ?? '') : '';
-      if (label.includes('फासे') && (await main.isEnabled())) {
+      if (label.includes(L.roll) && (await main.isEnabled())) {
         await tap('.controls .ctrl-row:not(.small) button.primary');
         rolls++;
-      } else if (label.includes('पाळी संपवा')) await tap('.controls .ctrl-row:not(.small) button.primary');
+      } else if (label.includes(L.end)) await tap('.controls .ctrl-row:not(.small) button.primary');
       else await page.waitForTimeout(100);
     }
   }

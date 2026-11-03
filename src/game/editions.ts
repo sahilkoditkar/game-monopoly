@@ -1,7 +1,6 @@
 import { GROUPS, TILES } from './board';
 import { CARDS } from './cards';
-import { getLang } from '../i18n';
-import { MR_CARDS, MR_NAMES } from '../i18n/mr';
+import { pack } from '../i18n';
 
 /**
  * Board editions change only names, icons and the currency symbol. Prices, rents, rules and
@@ -188,8 +187,9 @@ export function localize(text: string): string {
 /** Switches every displayed name to an edition. Engine numbers are untouched. */
 export function applyEdition(id: string | undefined) {
   const base = EDITIONS[(id as EditionId) ?? 'world'] ?? EDITIONS.world;
-  // In Marathi every board uses Devanagari names; icons and everything else stay the same.
-  const mr = getLang() === 'mr' ? MR_NAMES[base.id] : undefined;
+  // In Hindi or Marathi every board uses Devanagari names; icons and everything else stay the same.
+  const lp = pack();
+  const mr = lp?.names[base.id];
   current = mr
     ? {
         ...base,
@@ -220,7 +220,7 @@ export function applyEdition(id: string | undefined) {
   const re = keys.length ? new RegExp(keys.map(esc).join('|'), 'g') : null;
   swapper = re ? (s) => s.replace(re, (m) => pairs.get(m) ?? m) : null;
   CARDS.forEach((c, i) => {
-    const mrCard = mr && MR_CARDS[c.id];
+    const mrCard = mr && lp?.cards[c.id];
     if (mrCard) {
       c.title = mrCard[0];
       c.text = mrCard[1].replace(/\{(t|m)(\d+)\}|\{transit\}/g, (m, kind?: string, n?: string) =>
