@@ -71,6 +71,41 @@ export interface Settings {
   edition?: string;
   /** Quick game: every player starts with two random cities. */
   quickStart?: boolean;
+  /** House rule: a news event shakes up rents (or cash) at the start of each round. */
+  news?: boolean;
+  /** House rule: each player gets a secret mission worth a bonus. */
+  missions?: boolean;
+  /** House rule: players hold up to 3 action cards and may play one per turn. */
+  actionCards?: boolean;
+  /** Daily challenge date (YYYY-MM-DD) when this is the daily game. */
+  daily?: string;
+}
+
+export type ActionCard = 'boost' | 'holiday' | 'half' | 'free';
+
+export type MissionKind = 'set' | 'stations' | 'utilities' | 'cash' | 'hotel' | 'props' | 'rent';
+
+export interface Mission {
+  kind: MissionKind;
+  /** Colour set for 'set' missions. */
+  group?: string;
+  done: boolean;
+}
+
+/** A running news effect: rents on `target` (a colour set, 'transit' or 'utility') × `mult` until the end of round `until`. */
+export interface NewsEffect {
+  target: string;
+  mult: number;
+  until: number;
+}
+
+/** Action-card effects for the current turn. */
+export interface TurnEffects {
+  played?: boolean;
+  boost?: boolean;
+  holiday?: boolean;
+  half?: boolean;
+  free?: boolean;
 }
 
 export interface Player {
@@ -166,6 +201,12 @@ export interface GameState {
   lastCard: string | null;
   /** Optional so saves from before stats existed still load. */
   stats?: GameStats;
+  /** Separate random stream for dice, so the same seed always gives the same rolls. */
+  diceSeed?: number;
+  news?: NewsEffect[];
+  missions?: Mission[];
+  hands?: ActionCard[][];
+  turnFx?: TurnEffects;
 }
 
 export type GameEvent =
@@ -189,4 +230,7 @@ export type GameEvent =
   | { type: 'jackpot'; player: number; amount: number }
   | { type: 'bankrupt'; player: number; to: number | null }
   | { type: 'gameover'; winner: number | null }
-  | { type: 'log'; text: string };
+  | { type: 'log'; text: string }
+  | { type: 'news'; text: string }
+  | { type: 'mission'; player: number }
+  | { type: 'actionCard'; player: number; card: ActionCard };

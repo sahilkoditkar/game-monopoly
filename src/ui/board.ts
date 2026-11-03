@@ -257,6 +257,20 @@ export class BoardView {
         }
       }
     }
+    // Breaking news: a badge on every tile whose rent is changed right now.
+    for (const t of TILES) {
+      const target = t.kind === 'property' ? t.group : t.kind;
+      const mult = (state.news ?? []).filter((n) => n.target === target).reduce((m, n) => m * n.mult, 1);
+      const tile = this.tiles[t.index];
+      let badge = tile.querySelector<HTMLElement>('.news-badge');
+      if (mult === 1) {
+        badge?.remove();
+        continue;
+      }
+      if (!badge) badge = tile.appendChild(el('div', 'news-badge'));
+      badge.textContent = mult === 0 ? '✕' : mult > 1 ? `×${mult}` : '½';
+      badge.classList.toggle('down', mult < 1);
+    }
     const jp = this.root.querySelector('.jackpot-label');
     if (jp) jp.textContent = state.settings.jackpot ? tr('Jackpot {amount}', { amount: money(state.jackpot) }) : tr('Free stop');
     if (changed !== undefined) {

@@ -16,7 +16,23 @@ import {
 } from './board';
 import { CARDS, CARD_BY_ID } from './cards';
 import { nextRandom, randomSeed } from './rng';
+import {
+  ACTION_CARDS,
+  BOOST_STEPS,
+  CARD_NAMES,
+  HAND_LIMIT,
+  MISSION_CASH,
+  MISSION_KINDS,
+  MISSION_PROPS,
+  MISSION_RENT,
+  MISSION_REWARD,
+  NEWS_BONUS,
+  NEWS_EVENTS,
+  NEWS_TAX,
+  missionText,
+} from './extras';
 import type {
+  ActionCard,
   Deck,
   GameEvent,
   GameState,
@@ -92,7 +108,14 @@ export class Game {
     for (const deck of ['fortune', 'treasury'] as Deck[]) {
       state.decks[deck] = game.shuffle(CARDS.filter((c) => c.deck === deck).map((c) => c.id));
     }
+    // Dice get their own stream so a seed always means the same rolls, whatever players decide.
+    state.diceSeed = (seed ^ 0x5bd1e995) >>> 0;
     if (s.quickStart) game.dealQuickStart();
+    if (s.missions) game.dealMissions();
+    if (s.actionCards) {
+      state.hands = players.map(() => []);
+      for (const p of players) for (let k = 0; k < 2; k++) game.drawActionCard(p, true);
+    }
     game.stats.worth.push(players.map((p) => game.netWorth(p.id)));
     game.emit({ type: 'turn', player: 0 });
     game.log(`${players[0].name} goes first.`);
@@ -101,8 +124,9 @@ export class Game {
 
   // ---------------------------------------------------------------- helpers
 
-  /** Returns and clears the events produced since the last call. */
+  /** Returns and clears the events produced since the last call. Secret missions are checked here, after every action. */
   drain(): GameEvent[] {
+    this.checkMissions();
     const out = this.events;
     this.events = [];
     return out;
@@ -136,7 +160,12 @@ export class Game {
   private rollDice(): [number, number] {
     const forced = this.forcedDice.shift();
     if (forced) return forced;
-    return [1 + Math.floor(this.random() * 6), 1 + Math.floor(this.random() * 6)];
+    const s = this.state;
+    if (s.diceSeed === undefined) return [1 + Math.floor(this.random() * 6), 1 + Math.floor(this.random() * 6)];
+    const [a, s1] = nextRandom(s.diceSeed);
+    const [b, s2] = nextRandom(s1);
+    s.diceSeed = s2;
+    return [1 + Math.floor(a * 6), 1 + Math.floor(b * 6)];
   }
 
   get cur(): Player {
@@ -179,6 +208,17 @@ export class Game {
 
   /** Rent owed for landing on `tile` given the dice total. */
   rentFor(tile: number, diceTotal: number, cardBoost = false): number {
+    return Math.round(this.baseRent(tile, diceTotal, cardBoost) * this.newsMultiplier(tile));
+  }
+
+  /** The combined news effect on a tile's rent (1 when there's no news about it). */
+  newsMultiplier(tile: number): number {
+    const def = TILES[tile];
+    const target = def.kind === 'property' ? def.group : def.kind;
+    return (this.state.news ?? []).filter((n) => n.target === target).reduce((m, n) => m * n.mult, 1);
+  }
+
+  private baseRent(tile: number, diceTotal: number, cardBoost: boolean): number {
     const own = this.state.props[tile];
     if (!own || own.mortgaged) return 0;
     const def = TILES[tile];
@@ -316,7 +356,10 @@ export class Game {
       }
     }
     s.rollAgain = doubles;
-    this.moveBy(p, total);
+    const fx = s.turnFx;
+    const extra = fx?.boost ? BOOST_STEPS : 0;
+    if (fx) fx.boost = false;
+    this.moveBy(p, total + extra);
     return dice;
   }
 
@@ -379,6 +422,8 @@ export class Game {
           this.log(`${p.name} landed on their own ${tile.name}.`);
         } else if (own.mortgaged) {
           this.log(`${tile.name} is mortgaged, so no rent is due.`);
+        } else if (s.turnFx?.holiday && p.id === s.current) {
+          this.log(`${p.name} is on a rent holiday: no rent for ${tile.name}.`);
         } else {
           let total = s.dice[0] + s.dice[1];
           if (opts.utilityRoll) {
@@ -500,6 +545,7 @@ export class Game {
         p.cash += this.state.settings.salary;
         this.emit({ type: 'money', player: p.id, delta: this.state.settings.salary, reason: 'Launch Pad salary' });
         this.log(`${p.name} passed the Launch Pad and collected $${this.state.settings.salary}.`);
+        if (this.state.settings.actionCards) this.drawActionCard(p);
       }
     }
     if (path.length) this.emit({ type: 'move', player: p.id, path });
@@ -588,14 +634,22 @@ export class Game {
     const p = this.cur;
     if (s.phase !== 'buy') return false;
     const tile = TILES[p.pos];
-    if (!isBuyable(p.pos) || s.props[p.pos] || p.cash < tile.price!) return false;
-    this.pay(p.id, null, tile.price!, `Bought ${tile.name}`);
+    const price = this.buyPrice();
+    if (!isBuyable(p.pos) || s.props[p.pos] || p.cash < price) return false;
+    if (s.turnFx) s.turnFx.half = false;
+    this.pay(p.id, null, price, `Bought ${tile.name}`);
     s.props[p.pos] = { owner: p.id, houses: 0, mortgaged: false };
-    this.emit({ type: 'buy', player: p.id, tile: p.pos, price: tile.price! });
-    this.log(`${p.name} bought ${tile.name} for $${tile.price}.`);
+    this.emit({ type: 'buy', player: p.id, tile: p.pos, price });
+    this.log(`${p.name} bought ${tile.name} for $${price}.`);
     this.checkFullSet(p.id, p.pos);
     this.finishBuyStep();
     return true;
+  }
+
+  /** What the current player pays for the tile they stand on (half with a Half price card). */
+  buyPrice(): number {
+    const price = TILES[this.cur.pos].price ?? 0;
+    return this.state.turnFx?.half ? Math.floor(price / 2) : price;
   }
 
   /** Declines to buy. Starts an auction when enabled. */
@@ -716,6 +770,7 @@ export class Game {
     s.doublesCount = 0;
     s.lastCard = null;
     s.debts = [];
+    const prev = s.current;
     let next = s.current;
     do next = (next + 1) % s.players.length;
     while (s.players[next].bankrupt);
@@ -726,10 +781,12 @@ export class Game {
     s.current = next;
     s.turnCount++;
     s.phase = 'roll';
+    s.turnFx = undefined;
     if (s.settings.roundLimit > 0 && s.round > s.settings.roundLimit) {
       this.finishByWorth();
       return;
     }
+    if (s.settings.news && next <= prev) this.breakingNews();
     this.emit({ type: 'turn', player: next });
   }
 
@@ -738,6 +795,11 @@ export class Game {
   private sameGroupTiles(tile: number): number[] {
     const g = TILES[tile].group;
     return g ? groupTiles(g) : [tile];
+  }
+
+  /** House cost for `pid`, or 0 when they played a Free house card this turn. */
+  buildCost(pid: number, tile: number): number {
+    return this.state.turnFx?.free && pid === this.state.current ? 0 : houseCost(tile);
   }
 
   canBuild(pid: number, tile: number): boolean {
@@ -766,7 +828,7 @@ export class Game {
     if (group.some((o) => o.mortgaged)) return 'Pay off the mortgages in this set first.';
     if (own.houses > Math.min(...group.map((o) => o.houses)))
       return 'Build evenly: add a house to the other cities in this set first.';
-    if (this.player(pid).cash < houseCost(tile)) return `You need $${houseCost(tile)} to build here.`;
+    if (this.player(pid).cash < this.buildCost(pid, tile)) return `You need $${houseCost(tile)} to build here.`;
     const supply = this.housesInUse();
     if (own.houses === 4 && supply.hotels >= MAX_HOTELS) return 'The bank has run out of hotels.';
     if (own.houses < 4 && supply.houses >= MAX_HOUSES) return 'The bank has run out of houses.';
@@ -776,7 +838,9 @@ export class Game {
   build(pid: number, tile: number): boolean {
     if (!this.canBuild(pid, tile)) return false;
     const own = this.state.props[tile];
-    this.pay(pid, null, houseCost(tile), `Built on ${TILES[tile].name}`);
+    const cost = this.buildCost(pid, tile);
+    if (cost === 0 && this.state.turnFx) this.state.turnFx.free = false;
+    this.pay(pid, null, cost, `Built on ${TILES[tile].name}`);
     own.houses++;
     this.emit({ type: 'build', player: pid, tile, houses: own.houses });
     this.log(`${this.player(pid).name} built ${own.houses === 5 ? 'a hotel' : 'a house'} on ${TILES[tile].name}.`);
@@ -932,6 +996,148 @@ export class Game {
   /** Ends the game now; the richest player wins. */
   forfeitToWorth() {
     if (this.state.phase !== 'gameover') this.finishByWorth(true);
+  }
+
+  // ------------------------------------------------------------- house rules: news, missions, cards
+
+  /** Start of a round: old news expires and a new event may shake up rents or cash. */
+  private breakingNews() {
+    const s = this.state;
+    s.news = (s.news ?? []).filter((n) => n.until >= s.round);
+    const total = NEWS_EVENTS.reduce((t, e) => t + e.weight, 0);
+    let r = this.random() * total;
+    const ev = NEWS_EVENTS.find((e) => (r -= e.weight) < 0) ?? NEWS_EVENTS[NEWS_EVENTS.length - 1];
+    const until = s.round + ev.rounds - 1;
+    const alive = this.activePlayers();
+    let text = '';
+    switch (ev.kind) {
+      case 'boom':
+      case 'slump': {
+        const groups = Object.keys(GROUPS);
+        const g = groups[Math.floor(this.random() * groups.length)];
+        const flavour = ev.flavours[Math.floor(this.random() * ev.flavours.length)];
+        s.news.push({ target: g, mult: ev.mult, until });
+        text = `📰 ${flavour} ${GROUPS[g].name}: rents ${ev.kind === 'boom' ? '×2' : 'halved'} for ${ev.rounds} rounds.`;
+        break;
+      }
+      case 'fuel':
+        s.news.push({ target: 'transit', mult: ev.mult, until });
+        text = `📰 Fuel prices up: Skyport rents ×2 for ${ev.rounds} rounds.`;
+        break;
+      case 'strike':
+        s.news.push({ target: 'transit', mult: 0, until });
+        text = '📰 Strike! No Skyport rent this round.';
+        break;
+      case 'powercut':
+        s.news.push({ target: 'utility', mult: 0, until });
+        text = '📰 Power cut! No utility rent this round.';
+        break;
+      case 'bonus':
+        text = `📰 Festival bonus: everyone collects $${NEWS_BONUS}.`;
+        for (const p of alive) this.gain(p, NEWS_BONUS, 'Festival bonus');
+        break;
+      case 'tax':
+        text = `📰 Tax season: everyone pays $${NEWS_TAX}.`;
+        for (const p of alive) this.pay(p.id, null, Math.min(NEWS_TAX, p.cash), 'Tax season', true);
+        break;
+      case 'quiet':
+        return;
+    }
+    this.emit({ type: 'news', text });
+    this.log(text);
+  }
+
+  /** Gives every player a different secret mission. */
+  private dealMissions() {
+    const groups = this.shuffle(Object.keys(GROUPS));
+    const kinds = this.shuffle(MISSION_KINDS);
+    this.state.missions = this.state.players.map((_, i) => {
+      const kind = kinds[i % kinds.length];
+      return kind === 'set' ? { kind, group: groups[i], done: false } : { kind, done: false };
+    });
+  }
+
+  /** Whether `pid` meets their mission right now. */
+  private missionMet(pid: number): boolean {
+    const m = this.state.missions?.[pid];
+    if (!m) return false;
+    const owned = this.ownedBy(pid);
+    const count = (kind: string) => owned.filter((t) => TILES[t].kind === kind).length;
+    switch (m.kind) {
+      case 'set':
+        return this.hasFullSet(pid, m.group!);
+      case 'stations':
+        return count('transit') >= 3;
+      case 'utilities':
+        return count('utility') >= 2;
+      case 'cash':
+        return this.player(pid).cash >= MISSION_CASH;
+      case 'hotel':
+        return owned.some((t) => this.state.props[t].houses === 5);
+      case 'props':
+        return owned.length >= MISSION_PROPS;
+      case 'rent':
+        return this.stats.rentGot[pid] >= MISSION_RENT;
+    }
+  }
+
+  private checkMissions() {
+    const s = this.state;
+    if (!s.missions || s.phase === 'gameover') return;
+    s.missions.forEach((m, pid) => {
+      const p = s.players[pid];
+      if (m.done || p.bankrupt || !this.missionMet(pid)) return;
+      m.done = true;
+      this.gain(p, MISSION_REWARD, 'Mission bonus');
+      this.emit({ type: 'mission', player: pid });
+      this.log(`🎯 ${p.name} completed a secret mission: ${missionText(m)}! +$${MISSION_REWARD}`);
+    });
+  }
+
+  /** Deals a random action card if the hand has room. */
+  private drawActionCard(p: Player, quiet = false) {
+    const hand = this.state.hands?.[p.id];
+    if (!hand || hand.length >= HAND_LIMIT) return;
+    hand.push(ACTION_CARDS[Math.floor(this.random() * ACTION_CARDS.length)]);
+    if (!quiet) this.log(`${p.name} got an action card.`);
+  }
+
+  /** Why `pid` can't play `card` now, or null if they can. */
+  cardBlocker(pid: number, card: ActionCard): string | null {
+    const s = this.state;
+    if (!s.settings.actionCards || !s.hands?.[pid]?.includes(card)) return 'You don\'t have that card.';
+    if (pid !== s.current || this.player(pid).bankrupt) return 'Cards are played on your own turn.';
+    if (s.turnFx?.played) return 'One card per turn.';
+    switch (card) {
+      case 'boost':
+      case 'holiday':
+        if (s.phase !== 'roll' || this.player(pid).inJail) return 'Play this before you roll.';
+        return null;
+      case 'half':
+        if (s.phase !== 'buy') return 'Play this when a city is for sale.';
+        return null;
+      case 'free': {
+        if (s.phase !== 'roll' && s.phase !== 'end') return 'Play this on your turn, when you can build.';
+        const can = BUYABLE.some((t) => {
+          const own = s.props[t];
+          if (!own || own.owner !== pid || TILES[t].kind !== 'property' || own.houses >= 5 || !this.hasFullSet(pid, TILES[t].group!)) return false;
+          const group = this.sameGroupTiles(t).map((i) => s.props[i]);
+          return !group.some((o) => o.mortgaged) && own.houses <= Math.min(...group.map((o) => o.houses));
+        });
+        return can ? null : 'You need a full colour set to build on.';
+      }
+    }
+  }
+
+  playCard(pid: number, card: ActionCard): boolean {
+    if (this.cardBlocker(pid, card) !== null) return false;
+    const s = this.state;
+    const hand = s.hands![pid];
+    hand.splice(hand.indexOf(card), 1);
+    s.turnFx = { ...(s.turnFx ?? {}), played: true, [card]: true };
+    this.emit({ type: 'actionCard', player: pid, card });
+    this.log(`${this.player(pid).name} played ${CARD_NAMES[card]}.`);
+    return true;
   }
 
   // ------------------------------------------------------------- trading

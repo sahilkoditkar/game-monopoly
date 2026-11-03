@@ -2,6 +2,7 @@ import type { Difficulty, PlayerConfig, Settings } from '../game/types';
 import { EDITIONS, applyEdition, currentEdition, localize, type EditionId } from '../game/editions';
 import { LANGS, allPacks, getLang, pack, setLang, tr, type Lang } from '../i18n';
 import { JAIL_FINE, TILES } from '../game/board';
+import { DAILY_ROUNDS, dailyEdition, dailyNumber, dailyPlayers, dailyResult, dailySeed, dailySettings, dailyStreak, todayKey } from './daily';
 import { el, escapeHtml, money } from './fx';
 import { play, unlockAudio } from './sound';
 
@@ -31,6 +32,8 @@ interface Seat {
 export interface SetupResult {
   players: PlayerConfig[];
   settings: Partial<Settings>;
+  /** Fixed seed (daily challenge); a random one otherwise. */
+  seed?: number;
 }
 
 const STORE = 'st-setup';
@@ -98,6 +101,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
         <div class="logo"><span class="logo-sky">SKYLINE</span><span class="logo-ty">TYCOON</span></div>
         <p class="tagline">${escapeHtml(tr(currentEdition().blurb))}</p>
         <div class="setup-actions-top"></div>
+        ${dailyCard()}
         <div class="section-title">${tr('Players')}</div>
         <div class="seg count-seg">${[2, 3, 4].map((n) => `<button class="${n === count ? 'on' : ''}" data-count="${n}" aria-label="${tr('{n} players', { n })}">${n}</button>`).join('')}</div>
         <div class="seats"></div>
@@ -133,12 +137,22 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
             </label>
             <label class="switch"><input type="checkbox" data-opt="auctions" ${settings.auctions ? 'checked' : ''}/><span></span>${tr('Auction properties nobody buys')}</label>
             <label class="switch"><input type="checkbox" data-opt="jackpot" ${settings.jackpot ? 'checked' : ''}/><span></span>${tr('Taxes and fines feed the {lounge} jackpot', { lounge: escapeHtml(localize('Sky Lounge')) })}</label>
+            <label class="switch rule"><input type="checkbox" data-opt="news" ${settings.news ? 'checked' : ''}/><span></span><div><b>${tr('📰 Breaking news')}</b><small>${tr('Each round an event can boost or crash rents, or hand out cash.')}</small></div></label>
+            <label class="switch rule"><input type="checkbox" data-opt="missions" ${settings.missions ? 'checked' : ''}/><span></span><div><b>${tr('🎯 Secret missions')}</b><small>${tr('Everyone gets a hidden goal. Complete it for a {amount} bonus.', { amount: money(500) })}</small></div></label>
+            <label class="switch rule"><input type="checkbox" data-opt="actionCards" ${settings.actionCards ? 'checked' : ''}/><span></span><div><b>${tr('🃏 Action cards')}</b><small>${tr('Hold up to 3 cards and play one per turn: Boost, Rent holiday, Half price, Free house.')}</small></div></label>
           </div>
         </details>
         <button class="btn primary big start-btn">${tr('Start game')}</button>
         <button class="btn ghost rules-btn">${tr('How to play')}</button>
       </div>`;
 
+    root.querySelector('.daily-btn')!.addEventListener('click', () => {
+      unlockAudio();
+      play('click');
+      const key = todayKey();
+      const you = seats[0];
+      opts.onStart({ players: dailyPlayers({ name: you.name.trim() || tr('Player {n}', { n: 1 }), token: you.token, color: you.color }), settings: dailySettings(key), seed: dailySeed(key) });
+    });
     const top = root.querySelector('.setup-actions-top')!;
     if (opts.hasSave) {
       const cont = el('button', 'btn gold big', tr('▶ Continue saved game'));
@@ -320,3 +334,22 @@ export const rulesHtml = () => {
   };
   return lp.rules.replace(/\{(\w+)\}/g, (m, k: string) => escapeHtml(fill[k] ?? m));
 };
+
+/** The daily challenge: its own section on the setup screen, separate from normal games. */
+function dailyCard(): string {
+  const key = todayKey();
+  const rec = dailyResult(key);
+  const streak = dailyStreak(key);
+  const board = EDITIONS[dailyEdition(key)].label;
+  return `
+    <section class="daily-card">
+      <div class="daily-head"><b>📅 ${tr('Daily challenge')}</b><small>#${dailyNumber(key)} · ${key}</small></div>
+      <p>${tr('Same board, same dice and same opponents for everyone today. After {n} rounds, your net worth is your score.', { n: DAILY_ROUNDS })}</p>
+      <div class="daily-meta">
+        <span>${tr("Today's board")}: <b>${tr(board)}</b></span>
+        ${streak ? `<span>🔥 ${tr('{n}-day streak', { n: streak })}</span>` : ''}
+        ${rec ? `<span>${tr('Your score: {first} · best {best}', { first: `<b>${money(rec.first)}</b>`, best: money(rec.best) })}</span>` : ''}
+      </div>
+      <button class="btn gold daily-btn">${rec ? tr('Play again (practice)') : tr("▶ Play today's challenge")}</button>
+    </section>`;
+}

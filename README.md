@@ -11,6 +11,8 @@ An original property-trading board game for **2–4 players** that runs in the b
   - 40 tiles: 22 world cities in 8 colour sets, 4 Skyports and 2 utilities.
   - Fortune and Treasury card decks, City Tax and Yacht Tax.
   - The Lockup and the Sky Lounge jackpot.
+- **Daily challenge:** its own section on the setup screen. Same board, dice and opponents for everyone each day; after 20 rounds your net worth is your score. Your first game of the day counts, replays are practice, and a streak counter keeps track.
+- **Optional house rules:** 📰 Breaking news (a round event boosts or crashes rents, or hands out cash), 🎯 Secret missions (a hidden goal worth a bonus) and 🃏 Action cards (Boost, Rent holiday, Half price, Free house; one per turn). Each can be switched on or off; computer players use them too.
 - **Languages:** English, हिन्दी (Hindi) or मराठी (Marathi), chosen on the setup screen. Menus, buttons, rules, cards, the game log and every board's city names are translated.
 - **Board editions:** pick **World**, **India** or **Maharashtra** on the setup screen. The India and Maharashtra boards use local cities, stations and ₹, with the same prices and rules.
 - **Full rules:**
@@ -59,6 +61,8 @@ STATS=1 npx vitest run tests/stats.test.ts
 |---|---|
 | `src/game/board.ts`, `cards.ts` | Board tiles, prices, rents and card decks |
 | `src/i18n/` | Interface language: `tr()` for UI text, `trText()` for engine sentences, Hindi and Marathi strings and names in `hi.ts` and `mr.ts` |
+| `src/game/extras.ts` | News events, secret missions and action cards (the optional house rules) |
+| `src/ui/daily.ts` | Daily challenge: date seed, board, opponents, scores and streak |
 | `src/game/editions.ts` | India and Maharashtra names and currency (names only) |
 | `src/game/engine.ts` | Rules engine: phases, money, jail, building, auctions, trades, bankruptcy. It emits events for the UI. |
 | `src/game/ai.ts` | AI players: buying, bidding, building, debt handling and trades |

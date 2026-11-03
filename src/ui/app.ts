@@ -2,6 +2,9 @@ import { acceptsTrade, apply, decide, fallback, newMemory, tradeOutlook, type Ai
 import { BUYABLE, GROUPS, JAIL_FINE, JAIL_INDEX, TILES, TRANSIT_RENTS, groupTiles, houseCost, mortgageValue, unmortgageCost } from '../game/board';
 import { CARD_BY_ID } from '../game/cards';
 import { capitalize, currentEdition, localize } from '../game/editions';
+import { missionText } from '../game/extras';
+import { dailyNumber, dailyStreak, recordDaily } from './daily';
+import type { ActionCard } from '../game/types';
 import { tr, trText } from '../i18n';
 import { Game } from '../game/engine';
 import type { GameEvent, GameState, Player, TradeOffer, TradeSide } from '../game/types';
@@ -20,6 +23,15 @@ const SPEEDS: Record<Speed, { step: number; ai: number; roll: number; banner: nu
 };
 
 const SAVE_KEY = 'st-save';
+
+const CARD_ICONS: Record<ActionCard, string> = { boost: '🚀', holiday: '🏖️', half: '🏷️', free: '🏗️' };
+const CARD_LABELS: Record<ActionCard, string> = { boost: 'Boost +3', holiday: 'Rent holiday', half: 'Half price', free: 'Free house' };
+const CARD_HELP: Record<ActionCard, string> = {
+  boost: 'Move 3 extra spaces on your next roll. Play before rolling.',
+  holiday: 'Pay no rent for the rest of this turn. Play before rolling.',
+  half: 'Buy the city you are on for half price.',
+  free: 'Your next house this turn is free.',
+};
 
 export function loadSave(): { state: GameState; mem: AiMemory[] } | null {
   try {
@@ -262,7 +274,7 @@ export class GameApp {
   private render() {
     if (this.destroyed) return;
     const s = this.s;
-    this.roundEl.textContent = s.settings.roundLimit ? tr('Round {n} / {max}', { n: Math.min(s.round, s.settings.roundLimit), max: s.settings.roundLimit }) : tr('Round {n}', { n: s.round });
+    this.roundEl.textContent = (s.settings.daily ? '📅 ' : '') + (s.settings.roundLimit ? tr('Round {n} / {max}', { n: Math.min(s.round, s.settings.roundLimit), max: s.settings.roundLimit }) : tr('Round {n}', { n: s.round }));
     this.board.setTokens(s);
     this.board.renderTiles(s);
     this.renderPlayers();
@@ -294,9 +306,11 @@ export class GameApp {
         if (stations) chips.push(`<i class="gchip icon" title="${capitalize(localize('Skyports'))}">${TILES[5].icon}${stations}</i>`);
         if (ut) chips.push(`<i class="gchip icon" title="${tr('Utilities')}">⚡${ut}</i>`);
         const badges = [
-          p.ai ? `<span class="badge">${tr('AI')} · ${tr(p.difficulty)}</span>` : '',
+          p.ai ? `<span class="badge ai-badge">${tr('AI')} · ${tr(p.difficulty)}</span>` : '',
           p.inJail ? `<span class="badge warn">🔒 ${escapeHtml(TILES[JAIL_INDEX].name)}</span>` : '',
           p.jailCards.length ? `<span class="badge">🎫×${p.jailCards.length}</span>` : '',
+          s.missions?.[p.id] ? `<span class="badge ${s.missions[p.id].done ? 'good' : ''}" title="${tr('Secret mission')}">🎯${s.missions[p.id].done ? '✓' : ''}</span>` : '',
+          s.hands?.[p.id]?.length ? `<span class="badge" title="${tr('Action cards')}">🃏×${s.hands[p.id].length}</span>` : '',
           p.bankrupt ? `<span class="badge bad">${tr('Bankrupt')}</span>` : '',
         ].join('');
         const active = p.id === s.current && s.phase !== 'gameover';
@@ -400,7 +414,11 @@ export class GameApp {
     if (s.phase === 'roll' || s.phase === 'end') {
       row2.appendChild(button(tr('🏗️ Manage'), 'ghost', () => this.openManage(actor.id)));
       row2.appendChild(button(tr('🤝 Trade'), 'ghost', () => this.openTrade(actor.id)));
+      if (s.hands?.[actor.id]) row2.appendChild(button(`🃏 ${s.hands[actor.id].length}`, 'ghost cards-btn', () => this.openHand(actor.id)));
     }
+    const fx = s.turnFx;
+    const active = fx ? (['boost', 'holiday', 'half', 'free'] as ActionCard[]).filter((k) => fx[k]) : [];
+    if (active.length) this.statusEl.innerHTML += `<div class="ctrl-hint">${active.map((k) => `${CARD_ICONS[k]} ${tr(CARD_LABELS[k])}`).join(' · ')}</div>`;
     c.append(row);
     if (row2.childElementCount) c.append(row2);
   }
@@ -683,6 +701,27 @@ export class GameApp {
         await sleep(this.turbo ? 100 : 900);
         break;
       }
+      case 'news':
+        play('turn');
+        toast(`<b>${escapeHtml(trText(localize(e.text)))}</b>`, 'news', 4500);
+        this.board.renderTiles(s);
+        await sleep(this.turbo ? 80 : 900);
+        break;
+      case 'mission': {
+        const p = this.game.player(e.player);
+        const pt = this.tokenPoint(e.player);
+        confetti(pt.x, pt.y, 100, ['#ffd166', '#ffffff', p.color]);
+        play('jackpot');
+        toast(tr('🎯 {name} completed a secret mission: {mission}!', { name: `<b>${escapeHtml(p.name)}</b>`, mission: escapeHtml(trText(localize(missionText(s.missions![e.player])))) }), 'good', 4000);
+        await sleep(this.turbo ? 80 : 600);
+        break;
+      }
+      case 'actionCard': {
+        const p = this.game.player(e.player);
+        play('card');
+        if (p.ai) toast(`${CARD_ICONS[e.card]} ${tr('{name} played {card}', { name: `<b>${escapeHtml(p.name)}</b>`, card: tr(CARD_LABELS[e.card]) })}`);
+        break;
+      }
       case 'trade':
         play('buy');
         this.board.renderTiles(s);
@@ -760,20 +799,21 @@ export class GameApp {
 
   private openBuy(key: string) {
     const p = this.game.cur;
-    const tile = TILES[p.pos];
     const m = openModal({ title: tr('For sale'), cls: 'buy-modal', dismissable: false, peek: tr('decision') });
     const update = () => {
       m.body.innerHTML = '';
       m.body.appendChild(deedCard(this.s, p.pos));
-      const short = p.cash < tile.price!;
+      const price = this.game.buyPrice();
+      const short = p.cash < price;
       const info = el('div', 'buy-info', short
-        ? tr('You have {cash}. Mortgage or sell to raise {more} more, or let it go to auction.', { cash: money(p.cash), more: money(tile.price! - p.cash) })
-        : tr('You have {cash}. After buying: {after}', { cash: `<b>${money(p.cash)}</b>`, after: `<b>${money(p.cash - tile.price!)}</b>` }));
+        ? tr('You have {cash}. Mortgage or sell to raise {more} more, or let it go to auction.', { cash: money(p.cash), more: money(price - p.cash) })
+        : tr('You have {cash}. After buying: {after}', { cash: `<b>${money(p.cash)}</b>`, after: `<b>${money(p.cash - price)}</b>` }));
       m.body.appendChild(info);
       const advice = this.buyAdvice(p.id, p.pos);
       if (advice) m.body.appendChild(el('div', 'advice', advice));
       const row = el('div', 'modal-actions');
-      row.appendChild(button(tr('Buy for {price}', { price: money(tile.price!) }), 'primary', () => this.act(() => this.game.buy()), short));
+      row.appendChild(button(tr('Buy for {price}', { price: money(price) }), 'primary', () => this.act(() => this.game.buy()), short));
+      if (this.game.cardBlocker(p.id, 'half') === null) row.appendChild(button(`🏷️ ${tr('Half price')}`, 'gold', () => this.act(() => this.game.playCard(p.id, 'half'))));
       row.appendChild(button(this.s.settings.auctions ? tr('🔨 Auction') : tr('Pass'), 'ghost', () => this.act(() => this.game.decline())));
       if (short) row.appendChild(button(tr('🏗️ Manage'), 'gold', () => this.openManage(p.id)));
       m.body.appendChild(row);
@@ -934,6 +974,8 @@ export class GameApp {
       m.body.innerHTML = '';
       const head = el('div', 'manage-head', `${tr('Cash {cash}', { cash: `<b>${money(p.cash)}</b>` })}${this.s.phase === 'debt' ? ` · ${tr('Owes {amount}', { amount: `<b class="warn-text">${money(this.game.debtTotal(pid))}</b>` })}` : ''}`);
       m.body.appendChild(head);
+      const mission = this.s.missions?.[pid];
+      if (mission) m.body.appendChild(el('div', `mission-box ${mission.done ? 'done' : ''}`, `${mission.done ? '✅' : '🎯'} ${tr('Your secret mission: {mission}', { mission: `<b>${escapeHtml(trText(localize(missionText(mission))))}</b>` })} <small>${mission.done ? tr('Done!') : tr('Bonus {amount}', { amount: money(500) })}</small>`));
       if (!owned.length) {
         m.body.appendChild(el('p', 'muted', tr('No properties yet. Land on a city to buy it!')));
         return;
@@ -984,6 +1026,32 @@ export class GameApp {
     this.registerLive(m, update);
   }
 
+  /** The player's action cards, each with a Play button (or why it can't be played now). */
+  private openHand(pid: number) {
+    const m = openModal({ title: `🃏 ${tr('Action cards')}`, cls: 'hand-modal', peek: tr('cards') });
+    const update = () => {
+      const hand = this.s.hands?.[pid] ?? [];
+      m.body.innerHTML = '';
+      if (!hand.length) m.body.appendChild(el('p', 'muted', tr('No cards right now. You get one each time you pass {start}.', { start: escapeHtml(TILES[0].name) })));
+      const list = el('div', 'hand');
+      hand.forEach((card) => {
+        const why = this.game.cardBlocker(pid, card);
+        const c = el('div', `action-card ac-${card}`, `<div class="ac-icon">${CARD_ICONS[card]}</div><div class="ac-name">${tr(CARD_LABELS[card])}</div><div class="ac-text">${tr(CARD_HELP[card])}</div>`);
+        const b = button(tr('Play'), 'primary small', () => {
+          m.close();
+          void this.act(() => this.game.playCard(pid, card));
+        }, why !== null || this.busy);
+        c.appendChild(b);
+        if (why) c.appendChild(el('div', 'ac-why', escapeHtml(trText(why))));
+        list.appendChild(c);
+      });
+      m.body.appendChild(list);
+      m.body.appendChild(el('p', 'muted small', tr('One card per turn. You can hold up to 3 and get a new one each time you pass {start}.', { start: escapeHtml(TILES[0].name) })));
+    };
+    update();
+    this.registerLive(m, update);
+  }
+
   /** Highlights a player's tiles on the board while their property list is open. */
   private markOwner(m: ModalHandle, pid: number) {
     this.board.markOwner(this.s, pid);
@@ -998,6 +1066,7 @@ export class GameApp {
     const owned = this.game.ownedBy(pid);
     m.body.innerHTML = `
       <div class="manage-head">${tr('Cash {cash}', { cash: `<b>${money(p.cash)}</b>` })} · ${tr('Net worth {worth}', { worth: `<b>${money(this.game.netWorth(pid))}</b>` })}</div>
+      ${this.s.missions?.[pid] ? `<div class="mission-box ${this.s.missions[pid].done ? 'done' : ''}">${this.s.missions[pid].done ? `✅ ${escapeHtml(trText(localize(missionText(this.s.missions[pid]))))}` : `🎯 ${tr('Secret mission: hidden')}`}</div>` : ''}
       <div class="portfolio">${
         owned
           .map((t) => {
@@ -1332,6 +1401,25 @@ export class GameApp {
       <p class="muted small center spark-note">${tr("Lines show each player's net worth across the game, on the same scale.")}</p>`;
   }
 
+  /** Daily challenge result: your score, your first and best today, and your streak. */
+  private dailyHtml(): string {
+    const key = this.s.settings.daily;
+    const you = this.s.players.find((p) => !p.ai);
+    if (!key || !you) return '';
+    const score = you.bankrupt ? 0 : this.game.netWorth(you.id);
+    const r = recordDaily(key, score);
+    const streak = dailyStreak(key);
+    return `<div class="daily-result">
+      <div class="daily-head"><b>📅 ${tr('Daily challenge')} #${dailyNumber(key)}</b><small>${key}</small></div>
+      <div class="daily-score">${money(score)}</div>
+      <div class="daily-meta">
+        <span>${r.isFirst ? tr('Your official score for today') : tr('Practice game · your score today: {first}', { first: money(r.first) })}</span>
+        <span>${r.isBest && !r.isFirst ? '⭐ ' : ''}${tr('Best today: {best}', { best: money(r.best) })}</span>
+        ${streak ? `<span>🔥 ${tr('{n}-day streak', { n: streak })}</span>` : ''}
+      </div>
+    </div>`;
+  }
+
   /** Fun facts for the end screen. */
   private statsHtml(): string {
     const st = this.game.stats;
@@ -1367,6 +1455,7 @@ export class GameApp {
       <div class="trophy">🏆</div>
       <div class="winner" style="--pc:${w.color}">${tr('{name} wins!', { name: `${w.token} ${escapeHtml(w.name)}` })}</div>
       <p class="muted center">${s.round === 1 ? tr('Finished in 1 round') : tr('Finished in {n} rounds', { n: s.round })}</p>
+      ${this.dailyHtml()}
       ${this.standingsHtml(ranked)}
       ${this.statsHtml()}`;
     const row = el('div', 'modal-actions');
