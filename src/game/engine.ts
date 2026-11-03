@@ -92,6 +92,7 @@ export class Game {
     for (const deck of ['fortune', 'treasury'] as Deck[]) {
       state.decks[deck] = game.shuffle(CARDS.filter((c) => c.deck === deck).map((c) => c.id));
     }
+    if (s.quickStart) game.dealQuickStart();
     game.stats.worth.push(players.map((p) => game.netWorth(p.id)));
     game.emit({ type: 'turn', player: 0 });
     game.log(`${players[0].name} goes first.`);
@@ -199,6 +200,22 @@ export class Game {
   }
 
   /** Total assets: cash plus property and building value at cost (mortgaged at half). */
+  /** Quick game: deals two random cities to each player, never two from the same colour set. */
+  private dealQuickStart() {
+    const pool = this.shuffle(TILES.filter((t) => t.kind === 'property').map((t) => t.index));
+    for (const p of this.state.players) {
+      const got: number[] = [];
+      for (let k = 0; k < pool.length && got.length < 2; k++) {
+        const t = pool[k];
+        if (got.some((g) => TILES[g].group === TILES[t].group)) continue;
+        got.push(t);
+        pool.splice(k--, 1);
+      }
+      for (const t of got) this.state.props[t] = { owner: p.id, houses: 0, mortgaged: false };
+      this.log(`Quick start: ${p.name} gets ${got.map((t) => TILES[t].name).join(' and ')}.`);
+    }
+  }
+
   /** End-of-game statistics, created on first use (older saves have none). */
   get stats(): GameStats {
     const n = this.state.players.length;

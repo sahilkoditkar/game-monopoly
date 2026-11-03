@@ -100,6 +100,12 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           .map((e) => `<button class="${e.id === settings.edition ? 'on' : ''}" data-edition="${e.id}">${e.label}</button>`)
           .join('')}</div>
         <p class="edition-note">Same prices and rules, only the names change · ${currentEdition().currency}</p>
+        <div class="section-title">Game mode</div>
+        <div class="seg edition-seg mode-seg">
+          <button class="${settings.quickStart ? '' : 'on'}" data-mode="classic">🎲 Classic</button>
+          <button class="${settings.quickStart ? 'on' : ''}" data-mode="quick">⚡ Quick game</button>
+        </div>
+        <p class="edition-note">${settings.quickStart ? 'Everyone starts with 2 random cities. After 15 rounds the richest player wins (about 15–20 minutes).' : 'Play until one player is left, or set a round limit in House rules.'}</p>
         <details class="rules-box" ${rulesOpen ? 'open' : ''}>
           <summary>House rules</summary>
           <div class="opts">
@@ -229,7 +235,15 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
         draw();
       }),
     );
-    root.querySelector('.rules-btn')!.addEventListener('click', () => opts.onRules());
+    root.querySelectorAll<HTMLButtonElement>('.mode-seg button').forEach((b) =>
+      b.addEventListener('click', () => {
+        settings.quickStart = b.dataset.mode === 'quick';
+        settings.roundLimit = settings.quickStart ? 15 : 0;
+        play('click');
+        draw();
+      }),
+    );
+        root.querySelector('.rules-btn')!.addEventListener('click', () => opts.onRules());
     root.querySelector('.start-btn')!.addEventListener('click', () => {
       unlockAudio();
       play('click');

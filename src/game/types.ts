@@ -69,6 +69,8 @@ export interface Settings {
   roundLimit: number;
   /** Board edition: only names and the currency symbol change (see editions.ts). */
   edition?: string;
+  /** Quick game: every player starts with two random cities. */
+  quickStart?: boolean;
 }
 
 export interface Player {
