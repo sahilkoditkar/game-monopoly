@@ -282,6 +282,13 @@ export const HI: Record<string, string> = {
   'That player is out of the game.': 'वह खिलाड़ी खेल से बाहर है।',
   'The trade is empty.': 'सौदे में कुछ नहीं है।',
 
+  // house rules: titles and descriptions
+  "💵 Starting cash": "💵 शुरुआती पैसे",
+  "How much money everyone starts with.": "शुरुआत में सबको कितने पैसे मिलते हैं।",
+  "🔨 Auctions": "🔨 नीलामी",
+  "A city nobody buys goes to auction, and anyone can bid.": "जो शहर कोई न ख़रीदे उसकी नीलामी होती है, और बोली सबके लिए खुली है।",
+  "{lounge} jackpot": "{lounge} जैकपॉट",
+  "Taxes and fines pile up there. Land on it to collect them all.": "टैक्स और जुर्माना वहाँ जमा होते हैं। वहाँ पहुँचने वाले को सब मिलता है।",
   // setup: mode tabs and how the game ends
   "2 v 2, win together": "2 बनाम 2, साथ जीतें",
   "After {n} rounds the richest wins (or the last one standing, if that comes first).": "{n} राउंड के बाद सबसे अमीर की जीत (या उससे पहले एक ही खिलाड़ी बचे तो उसकी)।",

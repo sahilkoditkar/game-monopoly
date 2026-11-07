@@ -3047,3 +3047,22 @@ body.docked .auction-modal .auction-grid {
 .seat:has(.team-seg) .seat-diff {
   grid-column: 3 / 4;
 }
+/* House rules: every row is an emoji title + one-line description, then its control. */
+.opts label.rule.pick {
+  justify-content: space-between;
+  align-items: center;
+}
+.opts label.rule.pick div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.opts label.rule.pick small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+.opts label.rule.pick select {
+  flex: none;
+}
