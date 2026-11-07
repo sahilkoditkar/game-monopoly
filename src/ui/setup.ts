@@ -177,11 +177,11 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
             : `<details class="rules-box" ${rulesOpen ? 'open' : ''}>
           <summary>${tr('House rules')}</summary>
           <div class="opts">
-            <label>${tr('Starting cash')}
+            <label class="rule pick"><div><b>${tr('💵 Starting cash')}</b><small>${tr('How much money everyone starts with.')}</small></div>
               <select data-opt="startingCash">${[1000, 1500, 2000, 2500].map((v) => `<option value="${v}" ${v === settings.startingCash ? 'selected' : ''}>${money(v)}</option>`).join('')}</select>
             </label>
-            <label class="switch"><input type="checkbox" data-opt="auctions" ${settings.auctions ? 'checked' : ''}/><span></span>${tr('Auction properties nobody buys')}</label>
-            <label class="switch"><input type="checkbox" data-opt="jackpot" ${settings.jackpot ? 'checked' : ''}/><span></span>${tr('Taxes and fines feed the {lounge} jackpot', { lounge: escapeHtml(localize('Sky Lounge')) })}</label>
+            <label class="switch rule"><input type="checkbox" data-opt="auctions" ${settings.auctions ? 'checked' : ''}/><span></span><div><b>${tr('🔨 Auctions')}</b><small>${tr('A city nobody buys goes to auction, and anyone can bid.')}</small></div></label>
+            <label class="switch rule"><input type="checkbox" data-opt="jackpot" ${settings.jackpot ? 'checked' : ''}/><span></span><div><b>${TILES[20].icon} ${tr('{lounge} jackpot', { lounge: escapeHtml(TILES[20].name) })}</b><small>${tr('Taxes and fines pile up there. Land on it to collect them all.')}</small></div></label>
             <label class="switch rule"><input type="checkbox" data-opt="quickStart" ${settings.quickStart ? 'checked' : ''}/><span></span><div><b>${tr('⚡ Head start')}</b><small>${tr('Everyone starts with 2 random cities, for a faster game.')}</small></div></label>
             <label class="switch rule"><input type="checkbox" data-opt="earlyBuild" ${settings.earlyBuild ? 'checked' : ''}/><span></span><div><b>${tr('🏠 Early building')}</b><small>${tr('Build up to 2 houses on a city before owning its whole colour set.')}</small></div></label>
             <label class="switch rule"><input type="checkbox" data-opt="news" ${settings.news ? 'checked' : ''}/><span></span><div><b>${tr('📰 Breaking news')}</b><small>${tr('Each round an event can boost or crash rents, or hand out cash.')}</small></div></label>

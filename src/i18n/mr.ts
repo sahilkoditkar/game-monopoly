@@ -280,6 +280,13 @@ export const MR: Record<string, string> = {
   'That player is out of the game.': 'तो खेळाडू खेळातून बाहेर आहे.',
   'The trade is empty.': 'व्यवहारात काहीच नाही.',
 
+  // house rules: titles and descriptions
+  "💵 Starting cash": "💵 सुरुवातीचे पैसे",
+  "How much money everyone starts with.": "प्रत्येकाला सुरुवातीला किती पैसे मिळतात.",
+  "🔨 Auctions": "🔨 लिलाव",
+  "A city nobody buys goes to auction, and anyone can bid.": "कोणी न घेतलेल्या शहराचा लिलाव होतो आणि कोणीही बोली लावू शकते.",
+  "{lounge} jackpot": "{lounge} जॅकपॉट",
+  "Taxes and fines pile up there. Land on it to collect them all.": "कर आणि दंड तिथे जमा होतात. तिथे पोहोचणाऱ्याला सर्व मिळतात.",
   // setup: mode tabs and how the game ends
   "2 v 2, win together": "2 विरुद्ध 2, एकत्र जिंका",
   "After {n} rounds the richest wins (or the last one standing, if that comes first).": "{n} फेऱ्यांनंतर सर्वात श्रीमंत जिंकतो (किंवा त्याआधीच एकच खेळाडू उरला तर तो).",
