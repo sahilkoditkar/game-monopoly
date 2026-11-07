@@ -280,6 +280,28 @@ export const MR: Record<string, string> = {
   'That player is out of the game.': 'तो खेळाडू खेळातून बाहेर आहे.',
   'The trade is empty.': 'व्यवहारात काहीच नाही.',
 
+  // modes: race, teams, early building; auctions
+  "3 sets": "3 संच",
+  "4 players in two teams. Teammates pay no rent to each other, share colour sets, and win together.": "दोन संघांत 4 खेळाडू. एकाच संघातील खेळाडू एकमेकांना भाडे देत नाहीत, रंग संच मिळून पूर्ण करतात आणि एकत्र जिंकतात.",
+  "Auction: mortgage or sell here to raise cash, then go back and bid.": "लिलाव: इथे गहाण ठेवा किंवा विका, पैसे उभे करा आणि परत जाऊन बोली लावा.",
+  "Build up to 2 houses on a city before owning its whole colour set.": "संपूर्ण रंग संच नसतानाही एका शहरावर 2 घरांपर्यंत बांधा.",
+  "Last player standing": "शेवटपर्यंत टिकणारा खेळाडू",
+  "Now bidding: {name}": "आता बोली: {name}",
+  "Race to 3 full colour sets": "3 पूर्ण रंग संचांची शर्यत",
+  "Race to {amount} net worth": "{amount} संपत्तीची शर्यत",
+  "Team {t} wins!": "संघ {t} चा विजय!",
+  "Team {t}": "संघ {t}",
+  "Team": "संघ",
+  "Team A": "संघ A",
+  "Team B": "संघ B",
+  "Teams need 2 players each.": "प्रत्येक संघात 2 खेळाडू हवेत.",
+  "Your turn to bid, {name}": "तुमची बोलीची पाळी, {name}",
+  "🏁 How to win": "🏁 विजय कसा",
+  "🏠 Early building": "🏠 आधीच बांधकाम",
+  "🏦 Raise cash (up to {amount})": "🏦 पैसे उभे करा ({amount} पर्यंत)",
+  "👥 Teams (2 v 2)": "👥 संघ (2 विरुद्ध 2)",
+  "Without the full set, a city can have at most 2 houses.": "पूर्ण संच नसताना एका शहरावर जास्तीत जास्त 2 घरे.",
+  "3 full colour sets": "3 पूर्ण रंग संच",
   // daily challenge
   "Daily challenge": "दैनिक आव्हान",
   "Same board, same dice and same opponents for everyone today. After {n} rounds, your net worth is your score.": "आज सर्वांसाठी तोच बोर्ड, तेच फासे आणि तेच प्रतिस्पर्धी. {n} फेऱ्यांनंतर तुमची एकूण संपत्ती हाच तुमचा स्कोअर.",
@@ -336,6 +358,9 @@ export const MR: Record<string, string> = {
  * where they are phrases themselves (such as a debt reason).
  */
 export const MR_LOG: [RegExp, string][] = [
+  [/^(.+) is on a teammate's (.+): no rent\.$/, '$1 संघसाथीच्या $2 वर: भाडे नाही.'],
+  [/^🏁 (.+) reached (.+) and wins the race!$/, '🏁 $1 यांचे ध्येय पूर्ण: $2! शर्यतीत विजय.'],
+  [/^(\S+) net worth$/, '$1 संपत्ती'],
   [/^📰 Big match in (.+): rents ×2 for (\d) rounds\.$/, '📰 $1 मध्ये मोठा सामना: $2 फेऱ्यांसाठी भाडे ×2.'],
   [/^📰 Festival rush in (.+): rents ×2 for (\d) rounds\.$/, '📰 $1 मध्ये सणाची गर्दी: $2 फेऱ्यांसाठी भाडे ×2.'],
   [/^📰 New metro line in (.+): rents ×2 for (\d) rounds\.$/, '📰 $1 मध्ये नवी मेट्रो: $2 फेऱ्यांसाठी भाडे ×2.'],

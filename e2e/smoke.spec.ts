@@ -37,7 +37,7 @@ async function playTurns(page: Page, turns: number) {
     if (await page.$('.card-modal.open .card-ok')) await click('.card-ok');
     else if (await page.$('.trade-modal.open .modal-actions')) await click('.trade-modal button', /Decline/);
     else if (await page.$('.buy-modal.open')) await click('.buy-modal .modal-actions button');
-    else if (await page.$('.auction-modal.open .bid-turn')) await click('.auction-modal button', /Drop out/);
+    else if (await page.$('.auction-modal.open .now-bidding.mine')) await click('.auction-modal button', /Drop out/);
     else if (await page.$('.debt-modal.open')) {
       await click('.debt-modal button', /bankruptcy/);
       await click('.confirm-modal button.danger');
@@ -160,7 +160,7 @@ for (const L of [
     if (await page.$('.card-modal.open .card-ok')) await tap('.card-ok');
     else if (await page.$('.trade-modal.open .modal-actions')) await tap('.trade-modal .modal-actions button:nth-child(2)');
     else if (await page.$('.buy-modal.open')) await tap('.buy-modal .modal-actions button');
-    else if (await page.$('.auction-modal.open .bid-turn')) await tap('.auction-modal .modal-actions button:nth-child(2)');
+    else if (await page.$('.auction-modal.open .now-bidding.mine')) await tap('.auction-modal .modal-actions button:nth-child(2)');
     else if (await page.$('.debt-modal.open')) break;
     else {
       const main = page.locator('.controls .ctrl-row:not(.small) button.primary').first();
@@ -223,5 +223,64 @@ test('house rules: news, missions and action cards show up in play', async ({ pa
   await expect(page.locator('.manage-modal.open .mission-box')).toContainText('secret mission');
   await page.keyboard.press('Escape');
   await playTurns(page, 6);
+  expect(errors).toEqual([]);
+});
+
+/** Writes a tweak into the saved game, then continues it. */
+async function editSave(page: Page, edit: (state: Record<string, any>) => void) {
+  await page.waitForFunction(() => !!localStorage.getItem('st-save'));
+  await page.evaluate((src) => {
+    const d = JSON.parse(localStorage.getItem('st-save')!);
+    new Function('state', src)(d.state);
+    localStorage.setItem('st-save', JSON.stringify(d));
+  }, `(${edit.toString()})(state)`);
+  await page.reload();
+  await page.locator('.setup-actions-top button').click();
+}
+
+test('auction: short of cash, raise it by mortgaging, then bid', async ({ page }) => {
+  const errors = watchErrors(page);
+  await open(page);
+  await startGame(page, 2);
+  await playTurns(page, 1);
+  await editSave(page, (s) => {
+    s.props = { 1: { owner: 0, houses: 0, mortgaged: false } };
+    s.players[0].cash = 40;
+    s.phase = 'auction';
+    s.current = 0;
+    s.auction = { tile: 39, bid: 50, bidder: 1, active: [0, 1], turn: 0 };
+  });
+  const modal = page.locator('.auction-modal.open');
+  await expect(modal.locator('.now-bidding.mine')).toBeVisible();
+  await expect(modal.locator('.modal-actions button').first()).toBeDisabled();
+  await modal.locator('.raise-btn').click();
+  await page.locator('.manage-modal.open .mbtns button', { hasText: /Mortgage/ }).first().click();
+  await page.keyboard.press('Escape');
+  await expect(modal.locator('.modal-actions button').first()).toBeEnabled();
+  await modal.locator('.modal-actions button').first().click();
+  await expect(page.locator('.log-line').filter({ hasText: 'bids' }).first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('team mode, race mode and early building play through', async ({ page }) => {
+  const errors = watchErrors(page);
+  await open(page);
+  await page.click('.count-seg [data-count="4"]');
+  await page.locator('.seat [data-ai="0"]').nth(0).click();
+  for (let i = 1; i < 4; i++) await page.locator('.seat [data-ai="1"]').nth(i).click();
+  await page.locator('label.switch', { has: page.locator('[data-opt="teams"]') }).click();
+  await page.selectOption('[data-opt="goal"]', 'worth5000');
+  await page.click('summary');
+  await page.locator('label.switch', { has: page.locator('[data-opt="earlyBuild"]') }).click();
+  await page.click('.start-btn');
+  await expect(page.locator('.pcard .badge.team')).toHaveCount(4);
+  await expect(page.locator('.pcard .badge.race')).toHaveCount(4);
+  await expect(page.locator('.round-pill')).toContainText('🏁');
+  await expect(page.locator('.status-line .who')).toBeVisible();
+  await playTurns(page, 4);
+  await page.click('.menu-btn');
+  await page.locator('.menu-modal button', { hasText: /End game now/ }).click();
+  await page.locator('.confirm-modal button.danger').click();
+  await expect(page.locator('.gameover-modal .winner')).toContainText('Team');
   expect(errors).toEqual([]);
 });
