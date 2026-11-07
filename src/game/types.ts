@@ -58,7 +58,12 @@ export interface PlayerConfig {
   color: string;
   ai: boolean;
   difficulty?: Difficulty;
+  /** Team number (0 or 1) when playing in teams. */
+  team?: number;
 }
+
+/** Race goals: the first player (or team) to reach one wins. */
+export type RaceGoal = 'worth5000' | 'worth7500' | 'sets3';
 
 export interface Settings {
   startingCash: number;
@@ -79,6 +84,12 @@ export interface Settings {
   actionCards?: boolean;
   /** Daily challenge date (YYYY-MM-DD) when this is the daily game. */
   daily?: string;
+  /** Race mode: the first to reach this goal wins (otherwise: last one standing). */
+  goal?: RaceGoal;
+  /** Team mode: players have a `team`; teammates pay no rent to each other and share sets. */
+  teams?: boolean;
+  /** House rule: up to 2 houses on a city before owning its whole colour set. */
+  earlyBuild?: boolean;
 }
 
 export type ActionCard = 'boost' | 'holiday' | 'half' | 'free';
@@ -121,6 +132,7 @@ export interface Player {
   jailTurns: number;
   jailCards: Deck[];
   bankrupt: boolean;
+  team?: number;
 }
 
 export interface Ownership {
@@ -203,6 +215,8 @@ export interface GameState {
   stats?: GameStats;
   /** Separate random stream for dice, so the same seed always gives the same rolls. */
   diceSeed?: number;
+  /** The winning team in team mode. */
+  winnerTeam?: number | null;
   news?: NewsEffect[];
   missions?: Mission[];
   hands?: ActionCard[][];

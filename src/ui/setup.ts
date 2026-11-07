@@ -1,9 +1,9 @@
-import type { Difficulty, PlayerConfig, Settings } from '../game/types';
+import type { Difficulty, PlayerConfig, RaceGoal, Settings } from '../game/types';
 import { EDITIONS, applyEdition, currentEdition, localize, type EditionId } from '../game/editions';
 import { LANGS, allPacks, getLang, pack, setLang, tr, type Lang } from '../i18n';
 import { JAIL_FINE, TILES } from '../game/board';
 import { DAILY_ROUNDS, dailyEdition, dailyNumber, dailyPlayers, dailyResult, dailySeed, dailySettings, dailyStreak, todayKey } from './daily';
-import { el, escapeHtml, money } from './fx';
+import { el, escapeHtml, money, toast } from './fx';
 import { play, unlockAudio } from './sound';
 
 export const TOKENS = ['🚀', '🏎️', '🐱', '🦖', '🎩', '⛵', '👑', '🐶', '🦊', '🐼', '🐸', '🦄', '🐙', '🍕', '⚽', '🎸'];
@@ -27,6 +27,8 @@ interface Seat {
   color: string;
   ai: boolean;
   difficulty: Difficulty;
+  /** Team (0 = A, 1 = B) in team mode. */
+  team?: number;
 }
 
 export interface SetupResult {
@@ -119,6 +121,21 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           <button class="${settings.quickStart ? 'on' : ''}" data-mode="quick">${tr('⚡ Quick game')}</button>
         </div>
         <p class="edition-note">${settings.quickStart ? tr('Everyone starts with 2 random cities. After 15 rounds the richest player wins (about 15–20 minutes).') : tr('Play until one player is left, or set a round limit in House rules.')}</p>
+        <div class="opts mode-opts">
+          <label>${tr('🏁 How to win')}
+            <select data-opt="goal">${(
+              [
+                ['', tr('Last player standing')],
+                ['worth5000', tr('Race to {amount} net worth', { amount: money(5000) })],
+                ['worth7500', tr('Race to {amount} net worth', { amount: money(7500) })],
+                ['sets3', tr('Race to 3 full colour sets')],
+              ] as [RaceGoal | '', string][]
+            )
+              .map(([v, l]) => `<option value="${v}" ${v === (settings.goal ?? '') ? 'selected' : ''}>${l}</option>`)
+              .join('')}</select>
+          </label>
+          <label class="switch rule"><input type="checkbox" data-opt="teams" ${settings.teams ? 'checked' : ''}/><span></span><div><b>${tr('👥 Teams (2 v 2)')}</b><small>${tr('4 players in two teams. Teammates pay no rent to each other, share colour sets, and win together.')}</small></div></label>
+        </div>
         <details class="rules-box" ${rulesOpen ? 'open' : ''}>
           <summary>${tr('House rules')}</summary>
           <div class="opts">
@@ -137,6 +154,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
             </label>
             <label class="switch"><input type="checkbox" data-opt="auctions" ${settings.auctions ? 'checked' : ''}/><span></span>${tr('Auction properties nobody buys')}</label>
             <label class="switch"><input type="checkbox" data-opt="jackpot" ${settings.jackpot ? 'checked' : ''}/><span></span>${tr('Taxes and fines feed the {lounge} jackpot', { lounge: escapeHtml(localize('Sky Lounge')) })}</label>
+            <label class="switch rule"><input type="checkbox" data-opt="earlyBuild" ${settings.earlyBuild ? 'checked' : ''}/><span></span><div><b>${tr('🏠 Early building')}</b><small>${tr('Build up to 2 houses on a city before owning its whole colour set.')}</small></div></label>
             <label class="switch rule"><input type="checkbox" data-opt="news" ${settings.news ? 'checked' : ''}/><span></span><div><b>${tr('📰 Breaking news')}</b><small>${tr('Each round an event can boost or crash rents, or hand out cash.')}</small></div></label>
             <label class="switch rule"><input type="checkbox" data-opt="missions" ${settings.missions ? 'checked' : ''}/><span></span><div><b>${tr('🎯 Secret missions')}</b><small>${tr('Everyone gets a hidden goal. Complete it for a {amount} bonus.', { amount: money(500) })}</small></div></label>
             <label class="switch rule"><input type="checkbox" data-opt="actionCards" ${settings.actionCards ? 'checked' : ''}/><span></span><div><b>${tr('🃏 Action cards')}</b><small>${tr('Hold up to 3 cards and play one per turn: Boost, Rent holiday, Half price, Free house.')}</small></div></label>
@@ -176,6 +194,13 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           <button class="${s.ai ? 'on' : ''}" data-ai="1">${tr('🤖 AI')}</button>
         </div>
         ${
+          settings.teams
+            ? `<div class="seg small team-seg" role="group" aria-label="${tr('Team')}">${[0, 1]
+                .map((t) => `<button class="team-${t} ${s.team === t ? 'on' : ''}" data-team="${t}">${tr('Team {t}', { t: 'AB'[t] })}</button>`)
+                .join('')}</div>`
+            : ''
+        }
+        ${
           s.ai
             ? `<select class="seat-diff" aria-label="${tr('AI difficulty')}">${(['easy', 'normal', 'hard'] as Difficulty[])
                 .map((d) => `<option value="${d}" ${d === s.difficulty ? 'selected' : ''}>${tr(d[0].toUpperCase() + d.slice(1))}</option>`)
@@ -193,6 +218,13 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
           const other = seats.slice(0, count).find((x) => x !== s && x.color === b.dataset.color);
           if (other) other.color = s.color;
           s.color = b.dataset.color!;
+          play('click');
+          draw();
+        }),
+      );
+      row.querySelectorAll<HTMLButtonElement>('[data-team]').forEach((b) =>
+        b.addEventListener('click', () => {
+          s.team = Number(b.dataset.team);
           play('click');
           draw();
         }),
@@ -239,6 +271,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
     root.querySelectorAll<HTMLButtonElement>('.count-seg button').forEach((b) =>
       b.addEventListener('click', () => {
         count = Number(b.dataset.count);
+        if (count !== 4) settings.teams = false;
         play('click');
         draw();
       }),
@@ -246,8 +279,17 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
     root.querySelectorAll<HTMLSelectElement | HTMLInputElement>('[data-opt]').forEach((inp) =>
       inp.addEventListener('change', () => {
         const key = inp.dataset.opt as keyof Settings;
-        if (inp instanceof HTMLInputElement && inp.type === 'checkbox') (settings[key] as boolean) = inp.checked;
+        if (key === 'goal') settings.goal = (inp.value || undefined) as RaceGoal | undefined;
+        else if (inp instanceof HTMLInputElement && inp.type === 'checkbox') (settings[key] as boolean) = inp.checked;
         else (settings[key] as number) = Number(inp.value);
+        if (key === 'teams') {
+          // Teams are 2 v 2: four seats, alternating A/B unless already chosen.
+          if (settings.teams) {
+            count = 4;
+            seats.forEach((s, i) => (s.team ??= i % 2));
+          }
+          draw();
+        }
       }),
     );
     root.querySelectorAll<HTMLButtonElement>('.edition-seg button').forEach((b) =>
@@ -289,7 +331,12 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
         color: s.color,
         ai: s.ai,
         difficulty: s.difficulty,
+        ...(settings.teams ? { team: s.team ?? i % 2 } : {}),
       }));
+      if (settings.teams && players.filter((p) => p.team === 0).length !== 2) {
+        toast(tr('Teams need 2 players each.'), 'bad');
+        return;
+      }
       try {
         localStorage.setItem(STORE, JSON.stringify({ count, seats, settings }));
       } catch {

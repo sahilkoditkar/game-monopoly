@@ -282,6 +282,28 @@ export const HI: Record<string, string> = {
   'That player is out of the game.': 'वह खिलाड़ी खेल से बाहर है।',
   'The trade is empty.': 'सौदे में कुछ नहीं है।',
 
+  // modes: race, teams, early building; auctions
+  "3 sets": "3 सेट",
+  "4 players in two teams. Teammates pay no rent to each other, share colour sets, and win together.": "दो टीमों में 4 खिलाड़ी। टीम के साथी एक-दूसरे को किराया नहीं देते, रंग सेट मिलकर पूरे करते हैं और साथ जीतते हैं।",
+  "Auction: mortgage or sell here to raise cash, then go back and bid.": "नीलामी: यहाँ गिरवी रखें या बेचें, पैसे जुटाएँ और वापस जाकर बोली लगाएँ।",
+  "Build up to 2 houses on a city before owning its whole colour set.": "पूरा रंग सेट न होने पर भी किसी शहर पर 2 घर तक बनाएँ।",
+  "Last player standing": "आख़िर तक टिकने वाला खिलाड़ी",
+  "Now bidding: {name}": "अभी बोली: {name}",
+  "Race to 3 full colour sets": "3 पूरे रंग सेट की दौड़",
+  "Race to {amount} net worth": "{amount} संपत्ति की दौड़",
+  "Team {t} wins!": "जीत टीम {t} की!",
+  "Team {t}": "टीम {t}",
+  "Team": "टीम",
+  "Team A": "टीम A",
+  "Team B": "टीम B",
+  "Teams need 2 players each.": "हर टीम में 2 खिलाड़ी चाहिए।",
+  "Your turn to bid, {name}": "आपकी बोली की बारी, {name}",
+  "🏁 How to win": "🏁 जीत कैसे",
+  "🏠 Early building": "🏠 पहले से निर्माण",
+  "🏦 Raise cash (up to {amount})": "🏦 पैसे जुटाएँ ({amount} तक)",
+  "👥 Teams (2 v 2)": "👥 टीमें (2 बनाम 2)",
+  "Without the full set, a city can have at most 2 houses.": "पूरे सेट के बिना एक शहर पर ज़्यादा से ज़्यादा 2 घर।",
+  "3 full colour sets": "3 पूरे रंग सेट",
   // daily challenge
   "Daily challenge": "दैनिक चुनौती",
   "Same board, same dice and same opponents for everyone today. After {n} rounds, your net worth is your score.": "आज सबके लिए वही बोर्ड, वही पासे और वही विरोधी। {n} राउंड के बाद आपकी कुल संपत्ति ही आपका स्कोर।",
@@ -334,6 +356,9 @@ export const HI: Record<string, string> = {
 
 /** Engine sentences, matched after the board's names are swapped in (see MR_LOG). */
 export const HI_LOG: [RegExp, string][] = [
+  [/^(.+) is on a teammate's (.+): no rent\.$/, '$1 टीम के साथी के $2 पर: किराया नहीं।'],
+  [/^🏁 (.+) reached (.+) and wins the race!$/, '🏁 $1 का लक्ष्य पूरा: $2! दौड़ में जीत।'],
+  [/^(\S+) net worth$/, '$1 संपत्ति'],
   [/^📰 Big match in (.+): rents ×2 for (\d) rounds\.$/, '📰 $1 में बड़ा मैच: $2 राउंड तक किराया ×2।'],
   [/^📰 Festival rush in (.+): rents ×2 for (\d) rounds\.$/, '📰 $1 में त्योहार की भीड़: $2 राउंड तक किराया ×2।'],
   [/^📰 New metro line in (.+): rents ×2 for (\d) rounds\.$/, '📰 $1 में नई मेट्रो लाइन: $2 राउंड तक किराया ×2।'],

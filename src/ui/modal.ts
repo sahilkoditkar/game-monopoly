@@ -16,7 +16,31 @@ export interface ModalHandle {
  * `peek` adds a "View board" button that hides the dialog until the player taps
  * "Back to <peek>", so decisions can be made while looking at the board.
  */
-export function openModal(opts: { title?: string; cls?: string; dismissable?: boolean; html?: string; peek?: string } = {}): ModalHandle {
+/** Whose decision a dialog is about: shown as a chip in their colour, with a matching frame. */
+export interface Who {
+  name: string;
+  token: string;
+  color: string;
+}
+
+/** A player's token and name on their own colour: the one way the UI says "this player". */
+export const whoChip = (p: Who) => `<span class="who" style="--pc:${p.color}">${p.token} ${escapeHtml(p.name)}</span>`;
+
+/** Frames a dialog in a player's colour (call again to change whose turn it shows). */
+export function setWho(m: ModalHandle, p: Who | null) {
+  const panel = m.root.querySelector<HTMLElement>('.modal')!;
+  panel.classList.toggle('has-who', !!p);
+  if (p) panel.style.setProperty('--turn', p.color);
+  let chip = panel.querySelector<HTMLElement>('.modal-who');
+  if (!p) return chip?.remove();
+  if (!chip) {
+    chip = el('div', 'modal-who');
+    panel.insertBefore(chip, panel.firstChild);
+  }
+  chip.innerHTML = whoChip(p);
+}
+
+export function openModal(opts: { title?: string; cls?: string; dismissable?: boolean; html?: string; peek?: string; who?: Who } = {}): ModalHandle {
   const root = el('div', `modal-backdrop ${opts.cls ?? ''}`);
   const panel = el('div', 'modal');
   const body = el('div', 'modal-body');
@@ -54,6 +78,7 @@ export function openModal(opts: { title?: string; cls?: string; dismissable?: bo
   }
   root.appendChild(panel);
   document.body.appendChild(root);
+  if (opts.who) setWho({ root, body, close: () => {}, closed: Promise.resolve() }, opts.who);
   requestAnimationFrame(() => root.classList.add('open'));
 
   let resolve!: () => void;

@@ -53,6 +53,8 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const MIN_BID = 10;
+/** Early building house rule: houses allowed on a city before the whole set is owned. */
+export const EARLY_HOUSES = 2;
 const LOG_LIMIT = 300;
 
 export class Game {
@@ -81,6 +83,7 @@ export class Game {
       jailTurns: 0,
       jailCards: [],
       bankrupt: false,
+      ...(s.teams && c.team !== undefined ? { team: c.team } : {}),
     }));
     const state: GameState = {
       version: 1,
@@ -127,6 +130,7 @@ export class Game {
   /** Returns and clears the events produced since the last call. Secret missions are checked here, after every action. */
   drain(): GameEvent[] {
     this.checkMissions();
+    this.checkRace();
     const out = this.events;
     this.events = [];
     return out;
@@ -188,8 +192,47 @@ export class Game {
     return BUYABLE.filter((i) => this.state.props[i]?.owner === pid);
   }
 
+  /** Owns every city of a colour set (in team mode, together with teammates). */
   hasFullSet(pid: number, group: string): boolean {
-    return groupTiles(group).every((i) => this.state.props[i]?.owner === pid);
+    return groupTiles(group).every((i) => {
+      const o = this.state.props[i]?.owner;
+      return o !== undefined && this.sameTeam(pid, o);
+    });
+  }
+
+  /** Same player, or teammates in team mode. */
+  sameTeam(a: number, b: number): boolean {
+    if (a === b) return true;
+    const s = this.state;
+    if (!s.settings.teams) return false;
+    const ta = s.players[a]?.team;
+    return ta !== undefined && ta === s.players[b]?.team;
+  }
+
+  /** The tiles that must be built evenly with `tile`: the whole set when it's complete, else just the tile (early building). */
+  private buildGroup(pid: number, tile: number): number[] {
+    const g = TILES[tile].group;
+    return g && this.hasFullSet(pid, g) ? groupTiles(g) : [tile];
+  }
+
+  /** A player's progress towards the race goal (team totals in team mode). */
+  raceProgress(pid: number): { value: number; target: number } | null {
+    const goal = this.state.settings.goal;
+    if (!goal) return null;
+    const side = this.activePlayers().filter((p) => this.sameTeam(pid, p.id));
+    if (goal === 'sets3') {
+      const sets = Object.keys(GROUPS).filter((g) => side.some((p) => this.hasFullSet(p.id, g))).length;
+      return { value: sets, target: 3 };
+    }
+    const worth = side.reduce((t, p) => t + this.netWorth(p.id), 0);
+    return { value: worth, target: goal === 'worth5000' ? 5000 : 7500 };
+  }
+
+  /** May `pid` mortgage or sell right now to raise cash for a bid? */
+  canRaiseForAuction(pid: number): boolean {
+    const s = this.state;
+    const a = s.auction;
+    return s.phase === 'auction' && !!a && a.active[a.turn] === pid && !this.player(pid).bankrupt;
   }
 
   fullSets(pid: number): string[] {
@@ -420,6 +463,8 @@ export class Game {
         }
         if (own.owner === p.id) {
           this.log(`${p.name} landed on their own ${tile.name}.`);
+        } else if (this.sameTeam(p.id, own.owner)) {
+          this.log(`${p.name} is on a teammate's ${tile.name}: no rent.`);
         } else if (own.mortgaged) {
           this.log(`${tile.name} is mortgaged, so no rent is due.`);
         } else if (s.turnFx?.holiday && p.id === s.current) {
@@ -812,7 +857,10 @@ export class Game {
     const def = TILES[tile];
     if (!own || own.owner !== pid || def.kind !== 'property') return 'Only your own cities can have houses.';
     if (own.houses >= 5) return 'Fully built: it already has a hotel.';
-    if (!this.hasFullSet(pid, def.group!)) {
+    const fullSet = this.hasFullSet(pid, def.group!);
+    if (!fullSet && this.state.settings.earlyBuild) {
+      if (own.houses >= EARLY_HOUSES) return `Without the full set, a city can have at most ${EARLY_HOUSES} houses.`;
+    } else if (!fullSet) {
       const tiles = groupTiles(def.group!);
       const missing = tiles
         .filter((i) => this.state.props[i]?.owner !== pid)
@@ -824,7 +872,7 @@ export class Game {
     }
     if (this.state.phase === 'debt') return 'Pay what you owe before building.';
     if (!this.canManage(pid)) return 'You can build during your own turn.';
-    const group = this.sameGroupTiles(tile).map((i) => this.state.props[i]);
+    const group = this.buildGroup(pid, tile).map((i) => this.state.props[i]);
     if (group.some((o) => o.mortgaged)) return 'Pay off the mortgages in this set first.';
     if (own.houses > Math.min(...group.map((o) => o.houses)))
       return 'Build evenly: add a house to the other cities in this set first.';
@@ -849,8 +897,8 @@ export class Game {
 
   canSell(pid: number, tile: number): boolean {
     const own = this.state.props[tile];
-    if (!this.canManage(pid) || !own || own.owner !== pid || own.houses === 0) return false;
-    const group = this.sameGroupTiles(tile).map((i) => this.state.props[i]);
+    if (!(this.canManage(pid) || this.canRaiseForAuction(pid)) || !own || own.owner !== pid || own.houses === 0) return false;
+    const group = this.buildGroup(pid, tile).map((i) => this.state.props[i]);
     return own.houses >= Math.max(...group.map((o) => o.houses));
   }
 
@@ -871,8 +919,8 @@ export class Game {
 
   canMortgage(pid: number, tile: number): boolean {
     const own = this.state.props[tile];
-    if (!this.canManage(pid) || !own || own.owner !== pid || own.mortgaged) return false;
-    return this.sameGroupTiles(tile).every((i) => (this.state.props[i]?.houses ?? 0) === 0);
+    if (!(this.canManage(pid) || this.canRaiseForAuction(pid)) || !own || own.owner !== pid || own.mortgaged) return false;
+    return this.buildGroup(pid, tile).every((i) => (this.state.props[i]?.houses ?? 0) === 0);
   }
 
   mortgage(pid: number, tile: number): boolean {
@@ -970,12 +1018,17 @@ export class Game {
     const s = this.state;
     if (s.phase === 'gameover') return true;
     const alive = this.activePlayers();
-    if (alive.length <= 1) {
+    const sides = new Set(alive.map((p) => (s.settings.teams && p.team !== undefined ? `t${p.team}` : `p${p.id}`)));
+    if (sides.size <= 1) {
       this.recordWorth();
       s.phase = 'gameover';
-      s.winner = alive[0]?.id ?? null;
+      const best = [...alive].sort((a, b) => this.netWorth(b.id) - this.netWorth(a.id))[0];
+      s.winner = best?.id ?? null;
+      if (s.settings.teams && best?.team !== undefined) {
+        s.winnerTeam = best.team;
+        this.log(`🏆 Team ${'AB'[best.team]} wins the game!`);
+      } else if (s.winner !== null) this.log(`🏆 ${this.player(s.winner).name} wins the game!`);
       this.emit({ type: 'gameover', winner: s.winner });
-      if (s.winner !== null) this.log(`🏆 ${this.player(s.winner).name} wins the game!`);
       return true;
     }
     return false;
@@ -987,10 +1040,18 @@ export class Game {
     // A round-limit finish already recorded this round's values in nextTurn.
     if (early) this.recordWorth();
     s.phase = 'gameover';
-    s.winner = ranked[0].id;
-    this.emit({ type: 'gameover', winner: s.winner });
     const why = early ? 'Game ended early.' : 'Round limit reached.';
-    this.log(`${why} 🏆 ${ranked[0].name} wins with a net worth of $${this.netWorth(ranked[0].id)}!`);
+    if (s.settings.teams) {
+      const worth = (team: number) => ranked.filter((p) => p.team === team).reduce((t, p) => t + this.netWorth(p.id), 0);
+      const team = worth(0) >= worth(1) ? 0 : 1;
+      s.winnerTeam = team;
+      s.winner = ranked.find((p) => p.team === team)?.id ?? ranked[0].id;
+      this.log(`${why} 🏆 Team ${'AB'[team]} wins with a net worth of $${worth(team)}!`);
+    } else {
+      s.winner = ranked[0].id;
+      this.log(`${why} 🏆 ${ranked[0].name} wins with a net worth of $${this.netWorth(ranked[0].id)}!`);
+    }
+    this.emit({ type: 'gameover', winner: s.winner });
   }
 
   /** Ends the game now; the richest player wins. */
@@ -1120,8 +1181,9 @@ export class Game {
         if (s.phase !== 'roll' && s.phase !== 'end') return 'Play this on your turn, when you can build.';
         const can = BUYABLE.some((t) => {
           const own = s.props[t];
-          if (!own || own.owner !== pid || TILES[t].kind !== 'property' || own.houses >= 5 || !this.hasFullSet(pid, TILES[t].group!)) return false;
-          const group = this.sameGroupTiles(t).map((i) => s.props[i]);
+          if (!own || own.owner !== pid || TILES[t].kind !== 'property' || own.houses >= 5) return false;
+          if (!this.hasFullSet(pid, TILES[t].group!) && !(s.settings.earlyBuild && own.houses < EARLY_HOUSES)) return false;
+          const group = this.buildGroup(pid, t).map((i) => s.props[i]);
           return !group.some((o) => o.mortgaged) && own.houses <= Math.min(...group.map((o) => o.houses));
         });
         return can ? null : 'You need a full colour set to build on.';
@@ -1138,6 +1200,26 @@ export class Game {
     this.emit({ type: 'actionCard', player: pid, card });
     this.log(`${this.player(pid).name} played ${CARD_NAMES[card]}.`);
     return true;
+  }
+
+  /** Race mode: ends the game as soon as a player (or team) reaches the goal. */
+  private checkRace() {
+    const s = this.state;
+    if (!s.settings.goal || s.phase === 'gameover') return;
+    for (const p of this.activePlayers()) {
+      const r = this.raceProgress(p.id);
+      if (!r || r.value < r.target) continue;
+      this.recordWorth();
+      s.phase = 'gameover';
+      s.winner = p.id;
+      const goal = s.settings.goal === 'sets3' ? '3 full colour sets' : `$${r.target} net worth`;
+      if (s.settings.teams && p.team !== undefined) {
+        s.winnerTeam = p.team;
+        this.log(`🏁 Team ${'AB'[p.team]} reached ${goal} and wins the race!`);
+      } else this.log(`🏁 ${p.name} reached ${goal} and wins the race!`);
+      this.emit({ type: 'gameover', winner: p.id });
+      return;
+    }
   }
 
   // ------------------------------------------------------------- trading

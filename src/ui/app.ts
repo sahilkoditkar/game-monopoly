@@ -11,7 +11,7 @@ import type { GameEvent, GameState, Player, TradeOffer, TradeSide } from '../gam
 import { BoardView } from './board';
 import { DicePair } from './dice';
 import { centerOf, confetti, countTo, el, escapeHtml, floatText, flyCoins, money, sleep, toast } from './fx';
-import { button, deedCard, openModal, type ModalHandle } from './modal';
+import { button, deedCard, openModal, setWho, whoChip, type ModalHandle } from './modal';
 import { legacyToken, rulesHtml } from './setup';
 import { isMuted, play, setMuted } from './sound';
 
@@ -274,7 +274,10 @@ export class GameApp {
   private render() {
     if (this.destroyed) return;
     const s = this.s;
-    this.roundEl.textContent = (s.settings.daily ? '📅 ' : '') + (s.settings.roundLimit ? tr('Round {n} / {max}', { n: Math.min(s.round, s.settings.roundLimit), max: s.settings.roundLimit }) : tr('Round {n}', { n: s.round }));
+    this.roundEl.textContent =
+      (s.settings.daily ? '📅 ' : '') +
+      (s.settings.roundLimit ? tr('Round {n} / {max}', { n: Math.min(s.round, s.settings.roundLimit), max: s.settings.roundLimit }) : tr('Round {n}', { n: s.round })) +
+      (s.settings.goal ? ` · 🏁 ${s.settings.goal === 'sets3' ? tr('3 sets') : money(s.settings.goal === 'worth5000' ? 5000 : 7500)}` : '');
     this.board.setTokens(s);
     this.board.renderTiles(s);
     this.renderPlayers();
@@ -311,6 +314,8 @@ export class GameApp {
           p.jailCards.length ? `<span class="badge">🎫×${p.jailCards.length}</span>` : '',
           s.missions?.[p.id] ? `<span class="badge ${s.missions[p.id].done ? 'good' : ''}" title="${tr('Secret mission')}">🎯${s.missions[p.id].done ? '✓' : ''}</span>` : '',
           s.hands?.[p.id]?.length ? `<span class="badge" title="${tr('Action cards')}">🃏×${s.hands[p.id].length}</span>` : '',
+          s.settings.teams && p.team !== undefined ? `<span class="badge team team-${p.team}">${tr('Team {t}', { t: 'AB'[p.team] })}</span>` : '',
+          this.raceBadge(p),
           p.bankrupt ? `<span class="badge bad">${tr('Bankrupt')}</span>` : '',
         ].join('');
         const active = p.id === s.current && s.phase !== 'gameover';
@@ -329,6 +334,21 @@ export class GameApp {
     this.playersEl.querySelectorAll<HTMLElement>('.pcard').forEach((c) =>
       c.addEventListener('click', () => this.openPortfolio(Number(c.dataset.pid))),
     );
+  }
+
+  /** Race mode: how close a player (or their team) is to the goal. */
+  private raceBadge(p: Player): string {
+    if (p.bankrupt) return '';
+    const r = this.game.raceProgress(p.id);
+    if (!r) return '';
+    const label = this.s.settings.goal === 'sets3' ? `${r.value}/${r.target}` : `${Math.min(99, Math.floor((r.value / r.target) * 100))}%`;
+    return `<span class="badge race" title="${escapeHtml(this.goalLabel())}">🏁 ${label}</span>`;
+  }
+
+  private goalLabel(): string {
+    const goal = this.s.settings.goal;
+    if (!goal) return '';
+    return goal === 'sets3' ? tr('Race to 3 full colour sets') : tr('Race to {amount} net worth', { amount: money(goal === 'worth5000' ? 5000 : 7500) });
   }
 
   private syncCash() {
@@ -363,7 +383,7 @@ export class GameApp {
     const actor = this.game.player(this.game.actor());
     if (actor.ai || this.busy) {
       this.statusEl.innerHTML = actor.ai
-        ? `<span class="dot-pulse" style="--pc:${actor.color}"></span> ${tr('{name} is playing…', { name: `<b>${escapeHtml(actor.name)}</b>` })}`
+        ? tr('{name} is playing…', { name: whoChip(actor) })
         : tr("{name}'s turn", { name: `<b>${escapeHtml(cur.name)}</b>` });
       if (!actor.ai) {
         const b = button('…', 'primary wide', () => {}, true);
@@ -377,37 +397,37 @@ export class GameApp {
       }
       return;
     }
-    const name = escapeHtml(actor.name);
+    const name = whoChip(actor);
     const row = el('div', 'ctrl-row');
     const row2 = el('div', 'ctrl-row small');
     switch (s.phase) {
       case 'roll':
         if (cur.inJail) {
-          this.statusEl.innerHTML = tr('🔒 {name} is in {jail} (try {n}/3)', { name: `<b>${name}</b>`, jail: escapeHtml(TILES[JAIL_INDEX].name), n: cur.jailTurns + 1 });
+          this.statusEl.innerHTML = tr('🔒 {name} is in {jail} (try {n}/3)', { name, jail: escapeHtml(TILES[JAIL_INDEX].name), n: cur.jailTurns + 1 });
           row.appendChild(button(tr('🎲 Roll doubles'), 'primary', () => this.act(() => this.game.roll())));
           row.appendChild(button(tr('Pay {amount}', { amount: money(JAIL_FINE) }), 'gold', () => this.act(() => this.game.payJailFine()), cur.cash < JAIL_FINE));
           if (cur.jailCards.length) row.appendChild(button(tr('🎫 Use card'), 'gold', () => this.act(() => this.game.useJailCard())));
         } else {
-          this.statusEl.innerHTML = s.doublesCount ? tr('🎉 Doubles! {name}, roll again', { name: `<b>${name}</b>` }) : tr('{name}, your turn', { name: `<b>${name}</b>` });
+          this.statusEl.innerHTML = s.doublesCount ? tr('🎉 Doubles! {name}, roll again', { name }) : tr('{name}, your turn', { name });
           row.appendChild(button(s.doublesCount ? tr('🎲 Roll again') : tr('🎲 Roll dice'), 'primary wide pulse', () => this.act(() => this.game.roll())));
         }
         break;
       case 'end': {
-        this.statusEl.innerHTML = tr('{name}, anything else?', { name: `<b>${name}</b>` });
+        this.statusEl.innerHTML = tr('{name}, anything else?', { name });
         const sets = [...new Set(BUYABLE.filter((i) => this.game.canBuild(actor.id, i)).map((i) => GROUPS[TILES[i].group!].name))];
         if (sets.length) this.statusEl.innerHTML += `<div class="ctrl-hint">${tr('💡 You can build on {sets}', { sets: sets.map((n) => `<b>${escapeHtml(n)}</b>`).join(', ') })}</div>`;
         row.appendChild(button(tr('End turn ➜'), 'primary wide', () => this.act(() => this.game.endTurn())));
         break;
       }
       case 'buy':
-        this.statusEl.innerHTML = tr('{name} is deciding…', { name: `<b>${name}</b>` });
+        this.statusEl.innerHTML = tr('{name} is deciding…', { name });
         row.appendChild(button(tr('View offer'), 'primary', () => this.syncPhaseModal(true)));
         break;
       case 'auction':
-        this.statusEl.innerHTML = tr('🔨 Auction: {name} to bid', { name: `<b>${name}</b>` });
+        this.statusEl.innerHTML = tr('🔨 Auction: {name} to bid', { name });
         break;
       case 'debt':
-        this.statusEl.innerHTML = tr('⚠️ {name} owes {amount}', { name: `<b>${name}</b>`, amount: money(this.game.debtTotal(actor.id)) });
+        this.statusEl.innerHTML = tr('⚠️ {name} owes {amount}', { name, amount: money(this.game.debtTotal(actor.id)) });
         row.appendChild(button(tr('Raise cash'), 'gold', () => this.openManage(actor.id)));
         break;
     }
@@ -799,7 +819,7 @@ export class GameApp {
 
   private openBuy(key: string) {
     const p = this.game.cur;
-    const m = openModal({ title: tr('For sale'), cls: 'buy-modal', dismissable: false, peek: tr('decision') });
+    const m = openModal({ title: tr('For sale'), cls: 'buy-modal', dismissable: false, peek: tr('decision'), who: p });
     const update = () => {
       m.body.innerHTML = '';
       m.body.appendChild(deedCard(this.s, p.pos));
@@ -868,11 +888,13 @@ export class GameApp {
       // Rebuilding the panel must not throw away the player's scroll position.
       const scroller = m.root.querySelector<HTMLElement>('.modal');
       const scrollTop = scroller?.scrollTop ?? 0;
+      setWho(m, actor);
       m.body.innerHTML = '';
       const wrap = el('div', 'auction-grid');
       wrap.appendChild(deedCard(this.s, a.tile));
       const side = el('div', 'auction-side');
       side.innerHTML = `
+        <div class="now-bidding ${actor.ai ? '' : 'mine'}" style="--pc:${actor.color}">${actor.ai ? tr('Now bidding: {name}', { name: whoChip(actor) }) : tr('Your turn to bid, {name}', { name: whoChip(actor) })}</div>
         <div class="auction-bid">${a.bid ? money(a.bid) : tr('No bids yet')}</div>
         <div class="auction-leader">${leader ? tr('Leading: {name}', { name: `<span class="chip" style="--pc:${leader.color}">${leader.token} ${escapeHtml(leader.name)}</span>` }) : tr('Opening bid {amount}', { amount: money(min) })}</div>
         <div class="bidders">${this.s.players
@@ -885,6 +907,14 @@ export class GameApp {
       if (actor.ai) {
         side.appendChild(el('div', 'thinking', `<span class="dot-pulse" style="--pc:${actor.color}"></span> ${tr('{name} is thinking…', { name: escapeHtml(actor.name) })}`));
       }
+      // Short of cash? Mortgage or sell right here, then come back and bid.
+      if (me && me === actor && !this.busy) {
+        const extra = this.game.liquidity(me.id) - me.cash;
+        if (extra > 0) {
+          const raise = button(tr('🏦 Raise cash (up to {amount})', { amount: money(extra) }), 'gold small raise-btn', () => this.openManage(me.id));
+          side.appendChild(raise);
+        }
+      }
       // While someone else bids, a human still in the auction keeps their (disabled) controls,
       // so the panel doesn't shrink and jump back to the top.
       let row: HTMLElement | null = null;
@@ -892,7 +922,6 @@ export class GameApp {
         const myTurn = me === actor && !this.busy;
         const advice = this.buyAdvice(me.id, a.tile);
         if (advice) side.appendChild(el('div', 'advice', advice));
-        if (!actor.ai) side.appendChild(el('div', 'bid-turn', tr('{name}, your bid:', { name: `<b>${escapeHtml(me.name)}</b>` })));
         const stepper = el('div', 'stepper');
         const minus = button('−10', 'ghost small', () => {
           draft = Math.max(min, draft - 10);
@@ -933,6 +962,7 @@ export class GameApp {
       const d = this.s.debts[0];
       if (!d) return;
       const p = this.game.player(d.from);
+      setWho(m, p);
       const to = d.to !== null ? this.game.player(d.to).name : tr('the bank');
       const canRaise = this.game.liquidity(p.id) >= this.game.debtTotal(p.id);
       m.body.innerHTML = `
@@ -984,7 +1014,7 @@ export class GameApp {
 
   private openManage(pid: number) {
     const p = this.game.player(pid);
-    const m = openModal({ title: tr("🏗️ {name}'s properties", { name: escapeHtml(p.name) }), cls: 'manage-modal', peek: tr('properties') });
+    const m = openModal({ title: tr("🏗️ {name}'s properties", { name: escapeHtml(p.name) }), cls: 'manage-modal', peek: tr('properties'), who: p });
     this.markOwner(m, pid);
     const update = () => {
       const owned = this.game.ownedBy(pid);
@@ -1021,23 +1051,24 @@ export class GameApp {
           row.innerHTML = `<div class="mname">${TILES[t].icon} ${escapeHtml(TILES[t].name)} <span class="mh">${houses}</span>${o.mortgaged ? ` <span class="tag warn">${tr('Mortgaged')}</span>` : ''}</div>`;
           const btns = el('div', 'mbtns');
           // Build and sell only appear where they can apply: a full set, or a tile with buildings.
-          if (TILES[t].kind === 'property' && full && o.houses < 5)
+          if (TILES[t].kind === 'property' && can && (full || this.s.settings.earlyBuild) && o.houses < 5)
             btns.appendChild(button(`+🏠 ${money(houseCost(t))}`, 'small good', () => this.act(() => this.game.build(pid, t)), !can || !this.game.canBuild(pid, t)));
           if (TILES[t].kind === 'property' && o.houses > 0)
-            btns.appendChild(button(`−🏠 +${money(houseCost(t) / 2)}`, 'small ghost', () => this.act(() => this.game.sell(pid, t)), !can || !this.game.canSell(pid, t)));
+            btns.appendChild(button(`−🏠 +${money(houseCost(t) / 2)}`, 'small ghost', () => this.act(() => this.game.sell(pid, t)), this.busy || !this.game.canSell(pid, t)));
           if (o.mortgaged)
             btns.appendChild(button(tr('Pay off {amount}', { amount: money(unmortgageCost(t)) }), 'small gold', () => this.act(() => this.game.unmortgage(pid, t)), !can || !this.game.canUnmortgage(pid, t)));
           else
-            btns.appendChild(button(tr('Mortgage +{amount}', { amount: money(mortgageValue(t)) }), 'small ghost', () => this.act(() => this.game.mortgage(pid, t)), !can || !this.game.canMortgage(pid, t)));
+            btns.appendChild(button(tr('Mortgage +{amount}', { amount: money(mortgageValue(t)) }), 'small ghost', () => this.act(() => this.game.mortgage(pid, t)), this.busy || !this.game.canMortgage(pid, t)));
           row.appendChild(btns);
           sec.appendChild(row);
-          const why = full && can && o.houses < 5 ? this.game.buildBlocker(pid, t) : null;
+          const why = (full || this.s.settings.earlyBuild) && can && o.houses < 5 ? this.game.buildBlocker(pid, t) : null;
           if (why) sec.appendChild(el('div', 'build-hint', `ℹ️ ${escapeHtml(trText(localize(why)))}`));
         }
         list.appendChild(sec);
       }
       m.body.appendChild(list);
-      if (!can) m.body.appendChild(el('p', 'muted small', tr('You can manage properties during your own turn.')));
+      if (this.game.canRaiseForAuction(pid)) m.body.appendChild(el('p', 'muted small', tr('Auction: mortgage or sell here to raise cash, then go back and bid.')));
+      else if (!can) m.body.appendChild(el('p', 'muted small', tr('You can manage properties during your own turn.')));
       else m.body.appendChild(el('p', 'muted small', tr('To build, own every city in a colour set. Houses go on evenly, then a hotel. Mortgaging needs the whole set free of buildings.')));
     };
     update();
@@ -1046,7 +1077,7 @@ export class GameApp {
 
   /** The player's action cards, each with a Play button (or why it can't be played now). */
   private openHand(pid: number) {
-    const m = openModal({ title: `🃏 ${tr('Action cards')}`, cls: 'hand-modal', peek: tr('cards') });
+    const m = openModal({ title: `🃏 ${tr('Action cards')}`, cls: 'hand-modal', peek: tr('cards'), who: this.game.player(pid) });
     const update = () => {
       const hand = this.s.hands?.[pid] ?? [];
       m.body.innerHTML = '';
@@ -1160,7 +1191,7 @@ export class GameApp {
     return new Promise((resolve) => {
       const from = this.game.player(offer.from);
       const to = this.game.player(offer.to);
-      const m = openModal({ title: tr('🤝 Trade offer'), cls: 'trade-modal', dismissable: false, peek: tr('trade offer') });
+      const m = openModal({ title: tr('🤝 Trade offer'), cls: 'trade-modal', dismissable: false, peek: tr('trade offer'), who: this.game.player(offer.to) });
       play('card');
       m.body.innerHTML = `<p class="center">${title}</p>
         <div class="trade-review">${this.sideHtml(offer.give, from)}<div class="swap">⇄</div>${this.sideHtml(offer.get, to)}</div>
@@ -1190,7 +1221,7 @@ export class GameApp {
     const empty = (): TradeSide => ({ cash: 0, tiles: [], jailCards: 0 });
     let give = empty();
     let get = empty();
-    const m = openModal({ title: tr('🤝 Trade'), cls: 'trade-modal', peek: tr('trade') });
+    const m = openModal({ title: tr('🤝 Trade'), cls: 'trade-modal', peek: tr('trade'), who: this.game.player(pid) });
 
     const column = (owner: Player, side: TradeSide, label: string) => {
       const col = el('div', 'tcol');
@@ -1471,7 +1502,12 @@ export class GameApp {
     const m = openModal({ cls: 'gameover-modal', dismissable: false });
     m.body.innerHTML = `
       <div class="trophy">🏆</div>
-      <div class="winner" style="--pc:${w.color}">${tr('{name} wins!', { name: `${w.token} ${escapeHtml(w.name)}` })}</div>
+      <div class="winner" style="--pc:${w.color}">${
+        s.winnerTeam !== undefined && s.winnerTeam !== null
+          ? `${tr('Team {t} wins!', { t: 'AB'[s.winnerTeam] })}<small>${s.players.filter((p) => p.team === s.winnerTeam).map((p) => `${p.token} ${escapeHtml(p.name)}`).join(' · ')}</small>`
+          : tr('{name} wins!', { name: `${w.token} ${escapeHtml(w.name)}` })
+      }</div>
+      ${s.settings.goal ? `<p class="muted center">🏁 ${escapeHtml(this.goalLabel())}</p>` : ''}
       <p class="muted center">${s.round === 1 ? tr('Finished in 1 round') : tr('Finished in {n} rounds', { n: s.round })}</p>
       ${this.dailyHtml()}
       ${this.standingsHtml(ranked)}

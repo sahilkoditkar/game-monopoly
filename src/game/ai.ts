@@ -71,13 +71,17 @@ export function tileValue(g: Game, pid: number, tile: number): number {
   let v = def.price ?? 0;
   if (def.kind === 'property') {
     const others = groupTiles(def.group!).filter((i) => i !== tile);
-    const mine = others.filter((i) => g.ownerOf(i) === pid).length;
+    const ours = (i: number) => {
+      const o = g.ownerOf(i);
+      return o !== null && g.sameTeam(pid, o);
+    };
+    const mine = others.filter(ours).length;
     if (mine === others.length) v *= prof.setBonus;
     else if (mine > 0) v *= 1.2;
     const owners = new Set(others.map((i) => g.ownerOf(i)));
     if (owners.size === 1) {
       const o = [...owners][0];
-      if (o !== null && o !== pid) v *= prof.blockBonus;
+      if (o !== null && !g.sameTeam(pid, o)) v *= prof.blockBonus;
     }
   } else if (def.kind === 'transit') {
     const n = BUYABLE.filter((i) => TILES[i].kind === 'transit' && g.ownerOf(i) === pid && i !== tile).length;
@@ -169,6 +173,8 @@ export function tradeOutlook(g: Game, offer: TradeOffer): 'yes' | 'close' | 'no'
 /** Whether AI player `offer.to` accepts the trade. */
 export function acceptsTrade(g: Game, offer: TradeOffer): boolean {
   if (g.validateTrade(offer)) return false;
+  // Teammates help each other.
+  if (g.sameTeam(offer.from, offer.to)) return true;
   const prof = profileOf(g, offer.to);
   const gains = tradeGains(g, offer);
   if (gains.to <= 0) return false;
@@ -240,20 +246,22 @@ function bestBuild(g: Game, pid: number): number | null {
   const reserve = reserveFor(g, pid);
   let best: number | null = null;
   let bestScore = -1;
-  for (const gid of g.fullSets(pid)) {
-    for (const t of groupTiles(gid)) {
-      if (!g.canBuild(pid, t)) continue;
-      const o = g.state.props[t];
-      if (o.houses >= prof.maxHouses) continue;
-      const cost = houseCost(t);
-      if (g.player(pid).cash - cost < reserve) continue;
-      const rents = TILES[t].rents!;
-      const gain = rents[o.houses + 1] - (o.houses === 0 ? rents[0] * 2 : rents[o.houses]);
-      const score = gain / cost + (o.houses < 3 ? 1 : 0);
-      if (score > bestScore) {
-        bestScore = score;
-        best = t;
-      }
+  const full = new Set(g.fullSets(pid).flatMap((gid) => groupTiles(gid)));
+  // Early building (house rule) also allows single cities; only worth it with cash to spare.
+  const candidates = g.state.settings.earlyBuild ? g.ownedBy(pid).filter((t) => TILES[t].kind === 'property') : [...full];
+  for (const t of candidates) {
+    if (!g.canBuild(pid, t)) continue;
+    const o = g.state.props[t];
+    if (o.houses >= prof.maxHouses) continue;
+    const cost = houseCost(t);
+    const spare = full.has(t) ? reserve : reserve * 2 + 200;
+    if (g.player(pid).cash - cost < spare) continue;
+    const rents = TILES[t].rents!;
+    const base = o.houses > 0 ? rents[o.houses] : full.has(t) ? rents[0] * 2 : rents[0];
+    const score = (rents[o.houses + 1] - base) / cost + (o.houses < 3 ? 1 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = t;
     }
   }
   return best;
@@ -325,9 +333,18 @@ export function decide(g: Game, pid: number, mem: AiMemory): AiAction {
 
     case 'auction': {
       const a = s.auction!;
+      if (a.bidder !== null && a.bidder !== pid && g.sameTeam(pid, a.bidder)) return { type: 'pass' };
       const value = tileValue(g, pid, a.tile) * prof.auctionFactor;
       const limit = Math.min(value, p.cash - Math.min(reserve, 60));
       const min = g.minBid();
+      // Worth stretching for (completes or blocks a set): mortgage a loose property first.
+      if (min > limit && min <= value && value >= (TILES[a.tile].price ?? 0) * 1.3) {
+        const loose = g
+          .ownedBy(pid)
+          .filter((t) => g.canMortgage(pid, t) && !(TILES[t].group && g.hasFullSet(pid, TILES[t].group!)) && t !== a.tile)
+          .sort((x, y) => tileValue(g, pid, x) - tileValue(g, pid, y));
+        if (loose.length) return { type: 'mortgage', tile: loose[0] };
+      }
       if (min > limit) return { type: 'pass' };
       const step = 10 * (1 + Math.floor(g.random() * 3));
       const amount = Math.min(Math.floor(limit), Math.max(min, a.bid + step));

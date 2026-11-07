@@ -81,7 +81,13 @@ for (const L of LANGS) {
           if (/[A-Za-z]{2,}/.test(out.replace(/GPS/g, ''))) leftovers.add(`${en}  →  ${out}`);
         };
         for (const seed of [1, 2, 3, 4, 5, 6]) {
-          const g = Game.create(cfg, { roundLimit: 40, quickStart: seed % 2 === 0, edition, news: true, missions: true, actionCards: seed % 3 !== 0 }, seed);
+          const teams = seed % 3 === 0;
+          const players = teams ? [...cfg, { ...cfg[0], name: 'दीपू' }].map((p, i) => ({ ...p, team: i % 2 })) : cfg;
+          const g = Game.create(
+            players,
+            { roundLimit: 40, quickStart: seed % 2 === 0, edition, news: true, missions: true, actionCards: seed % 3 !== 0, teams, earlyBuild: seed % 2 === 1, goal: seed === 5 ? 'sets3' : seed === 4 ? 'worth5000' : undefined },
+            seed,
+          );
           for (const m of g.state.missions ?? []) check(missionText(m));
           const mem = g.state.players.map(() => newMemory());
           for (let i = 0; i < 30000 && g.state.phase !== 'gameover'; i++) {
