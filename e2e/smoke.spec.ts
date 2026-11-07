@@ -127,9 +127,12 @@ test('the Maharashtra board shows rupees and local names', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test('quick game deals two cities to everyone', async ({ page }) => {
+test('round limit and head start: 15 rounds, two cities each', async ({ page }) => {
   await open(page);
-  await page.click('.mode-seg [data-mode="quick"]');
+  await page.click('.end-seg [data-end="rounds"]');
+  await page.click('[data-rounds="15"]');
+  await page.click('summary');
+  await page.locator('label.switch', { has: page.locator('[data-opt="quickStart"]') }).click();
   await startGame(page, 3);
   await expect(page.locator('.tile.owned')).toHaveCount(6);
   await expect(page.locator('.round-pill')).toContainText('/ 15');
@@ -190,8 +193,13 @@ for (const L of [
 test('daily challenge: its own section, fixed rules, and a score at the end', async ({ page }) => {
   const errors = watchErrors(page);
   await open(page);
+  await page.click('.mode-tabs [data-mode="daily"]');
   await expect(page.locator('.daily-card')).toBeVisible();
-  await page.click('.daily-btn');
+  // Daily: only your own seat, no board choice or house rules (they're fixed).
+  await expect(page.locator('.seat')).toHaveCount(1);
+  await expect(page.locator('.rules-box')).toHaveCount(0);
+  await expect(page.locator('.end-seg')).toHaveCount(0);
+  await page.click('.start-btn');
   await expect(page.locator('.board')).toBeVisible();
   await expect(page.locator('.round-pill')).toContainText('📅');
   await expect(page.locator('.round-pill')).toContainText('/ 20');
@@ -203,7 +211,7 @@ test('daily challenge: its own section, fixed rules, and a score at the end', as
   await expect(page.locator('.gameover-modal .daily-result')).toContainText('official score');
   await page.locator('.gameover-modal button', { hasText: /Main menu/ }).click();
   await expect(page.locator('.daily-card')).toContainText('Your score');
-  await expect(page.locator('.daily-btn')).toContainText('practice');
+  await expect(page.locator('.start-btn')).toContainText('practice');
   expect(errors).toEqual([]);
 });
 
@@ -265,11 +273,13 @@ test('auction: short of cash, raise it by mortgaging, then bid', async ({ page }
 test('team mode, race mode and early building play through', async ({ page }) => {
   const errors = watchErrors(page);
   await open(page);
-  await page.click('.count-seg [data-count="4"]');
+  await page.click('.mode-tabs [data-mode="teams"]');
+  await expect(page.locator('.seat')).toHaveCount(4);
+  await expect(page.locator('.count-seg')).toHaveCount(0);
   await page.locator('.seat [data-ai="0"]').nth(0).click();
   for (let i = 1; i < 4; i++) await page.locator('.seat [data-ai="1"]').nth(i).click();
-  await page.locator('label.switch', { has: page.locator('[data-opt="teams"]') }).click();
-  await page.selectOption('[data-opt="goal"]', 'worth5000');
+  await page.click('.end-seg [data-end="race"]');
+  await page.click('[data-goal="worth5000"]');
   await page.click('summary');
   await page.locator('label.switch', { has: page.locator('[data-opt="earlyBuild"]') }).click();
   await page.click('.start-btn');
