@@ -31,6 +31,7 @@ import {
   NEWS_TAX,
   missionText,
 } from './extras';
+import { raceTarget } from './types';
 import type {
   ActionCard,
   Deck,
@@ -225,7 +226,7 @@ export class Game {
       return { value: sets, target: 3 };
     }
     const worth = side.reduce((t, p) => t + this.netWorth(p.id), 0);
-    return { value: worth, target: goal === 'worth5000' ? 5000 : 7500 };
+    return { value: worth, target: raceTarget(goal)! };
   }
 
   /** May `pid` mortgage or sell right now to raise cash for a bid? */

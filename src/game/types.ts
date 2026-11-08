@@ -63,7 +63,10 @@ export interface PlayerConfig {
 }
 
 /** Race goals: the first player (or team) to reach one wins. */
-export type RaceGoal = 'worth5000' | 'worth7500' | 'sets3';
+export type RaceGoal = 'worth3500' | 'worth5000' | 'worth7500' | 'sets3';
+
+/** The net worth a race goal asks for (null for the sets goal). */
+export const raceTarget = (goal: RaceGoal): number | null => (goal === 'sets3' ? null : Number(goal.slice(5)));
 
 export interface Settings {
   startingCash: number;

@@ -4,7 +4,7 @@ import { CARD_BY_ID } from '../game/cards';
 import { capitalize, currentEdition, localize } from '../game/editions';
 import { missionText } from '../game/extras';
 import { dailyNumber, dailyStreak, recordDaily } from './daily';
-import type { ActionCard } from '../game/types';
+import { raceTarget, type ActionCard } from '../game/types';
 import { tr, trText } from '../i18n';
 import { Game } from '../game/engine';
 import type { GameEvent, GameState, Player, TradeOffer, TradeSide } from '../game/types';
@@ -277,7 +277,7 @@ export class GameApp {
     this.roundEl.textContent =
       (s.settings.daily ? '📅 ' : '') +
       (s.settings.roundLimit ? tr('Round {n} / {max}', { n: Math.min(s.round, s.settings.roundLimit), max: s.settings.roundLimit }) : tr('Round {n}', { n: s.round })) +
-      (s.settings.goal ? ` · 🏁 ${s.settings.goal === 'sets3' ? tr('3 sets') : money(s.settings.goal === 'worth5000' ? 5000 : 7500)}` : '');
+      (s.settings.goal ? ` · 🏁 ${s.settings.goal === 'sets3' ? tr('3 sets') : money(raceTarget(s.settings.goal) ?? 0)}` : '');
     this.board.setTokens(s);
     this.board.renderTiles(s);
     this.renderPlayers();
@@ -348,7 +348,7 @@ export class GameApp {
   private goalLabel(): string {
     const goal = this.s.settings.goal;
     if (!goal) return '';
-    return goal === 'sets3' ? tr('Race to 3 full colour sets') : tr('Race to {amount} net worth', { amount: money(goal === 'worth5000' ? 5000 : 7500) });
+    return goal === 'sets3' ? tr('Race to 3 full colour sets') : tr('Race to {amount} net worth', { amount: money(raceTarget(goal) ?? 0) });
   }
 
   private syncCash() {

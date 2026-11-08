@@ -107,6 +107,14 @@ describe('team mode', () => {
 });
 
 describe('race mode', () => {
+  it('has a short race to 3,500', () => {
+    const g = Game.create(cfg(2), { goal: 'worth3500' }, 8);
+    expect(g.raceProgress(0)).toEqual({ value: 1500, target: 3500 });
+    g.player(0).cash = 3500;
+    g.drain();
+    expect(g.state.winner).toBe(0);
+  });
+
   it('ends the moment someone reaches the net worth goal', () => {
     const g = Game.create(cfg(2), { goal: 'worth5000' }, 8);
     g.player(1).cash = 5200;
@@ -129,7 +137,7 @@ describe('race mode', () => {
   });
 
   it('plays to a finish with computer players', () => {
-    for (const goal of ['worth5000', 'sets3'] as const) {
+    for (const goal of ['worth3500', 'worth5000', 'sets3'] as const) {
       const g = playOut(10, { goal, roundLimit: 0 }, cfg(3, true));
       expect(g.state.phase).toBe('gameover');
     }

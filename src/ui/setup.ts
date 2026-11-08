@@ -143,6 +143,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
             : ending === 'race'
               ? `<div class="seg small end-sub">${(
                   [
+                    ['worth3500', money(3500)],
                     ['worth5000', money(5000)],
                     ['worth7500', money(7500)],
                     ['sets3', tr('3 sets')],
@@ -315,7 +316,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
     root.querySelectorAll<HTMLButtonElement>('.end-seg button').forEach((b) =>
       b.addEventListener('click', () => {
         const end = b.dataset.end;
-        settings.goal = end === 'race' ? (settings.goal ?? 'worth5000') : undefined;
+        settings.goal = end === 'race' ? (settings.goal ?? 'worth3500') : undefined;
         settings.roundLimit = end === 'rounds' ? settings.roundLimit || 25 : 0;
         play('click');
         draw();
