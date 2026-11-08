@@ -317,6 +317,7 @@ export const HI: Record<string, string> = {
   "Now bidding: {name}": "अभी बोली: {name}",
   "Race to 3 full colour sets": "3 पूरे रंग सेट की दौड़",
   "Race to {amount} net worth": "{amount} संपत्ति की दौड़",
+  "2× money": "पैसे दोगुने",
   "Team {t} wins!": "जीत टीम {t} की!",
   "Team {t}": "टीम {t}",
   "Team": "टीम",

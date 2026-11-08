@@ -315,6 +315,7 @@ export const MR: Record<string, string> = {
   "Now bidding: {name}": "आता बोली: {name}",
   "Race to 3 full colour sets": "3 पूर्ण रंग संचांची शर्यत",
   "Race to {amount} net worth": "{amount} संपत्तीची शर्यत",
+  "2× money": "पैसे दुप्पट",
   "Team {t} wins!": "संघ {t} चा विजय!",
   "Team {t}": "संघ {t}",
   "Team": "संघ",

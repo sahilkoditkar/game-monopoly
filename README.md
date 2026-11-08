@@ -13,7 +13,7 @@ An original property-trading board game for **2–4 players** that runs in the b
   - The Lockup and the Sky Lounge jackpot.
 - **Daily challenge:** its own tab on the setup screen. Same board, dice and opponents for everyone each day; after 20 rounds your net worth is your score. Your first game of the day counts, replays are practice, and a streak counter keeps track.
 - **Setup screen:** three tabs, each showing only what applies: 🎲 Classic (2–4 players, everyone for themselves), 👥 Teams (2 v 2: teammates pay no rent to each other, share colour sets and win together) and 📅 Daily (below).
-- **How the game ends:** one choice for every mode: 🏆 last one standing, ⏱️ round limit (15 / 25 / 40 rounds, richest wins) or 🏁 race to ₹5,000 / ₹7,500 net worth or 3 full colour sets.
+- **How the game ends:** one choice for every mode: 🏆 last one standing, ⏱️ round limit (15 / 25 / 40 rounds, richest wins) or 🏁 race to double your starting money, ₹5,000 / ₹7,500 net worth or 3 full colour sets.
 - **Optional house rules:** ⚡ Head start (2 random cities each), 🏠 Early building (up to 2 houses before owning the whole set), 📰 Breaking news (a round event boosts or crashes rents, or hands out cash), 🎯 Secret missions (a hidden goal worth a bonus) and 🃏 Action cards (Boost, Rent holiday, Half price, Free house; one per turn). Each can be switched on or off; computer players use them too.
 - **Languages:** English, हिन्दी (Hindi) or मराठी (Marathi), chosen on the setup screen. Menus, buttons, rules, cards, the game log and every board's city names are translated.
 - **Board editions:** pick **World**, **India** or **Maharashtra** on the setup screen. The India and Maharashtra boards use local cities, stations and ₹, with the same prices and rules.

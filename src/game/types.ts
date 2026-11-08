@@ -63,10 +63,14 @@ export interface PlayerConfig {
 }
 
 /** Race goals: the first player (or team) to reach one wins. */
-export type RaceGoal = 'worth3500' | 'worth5000' | 'worth7500' | 'sets3';
+export type RaceGoal = 'double' | 'worth5000' | 'worth7500' | 'sets3';
 
-/** The net worth a race goal asks for (null for the sets goal). */
-export const raceTarget = (goal: RaceGoal): number | null => (goal === 'sets3' ? null : Number(goal.slice(5)));
+/**
+ * The net worth a race goal asks for (null for the sets goal). "Double your
+ * money" is twice the starting cash, per player on the side.
+ */
+export const raceTarget = (goal: RaceGoal, startingCash: number, sideSize = 1): number | null =>
+  goal === 'sets3' ? null : goal === 'double' ? 2 * startingCash * sideSize : Number(goal.slice(5));
 
 export interface Settings {
   startingCash: number;

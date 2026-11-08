@@ -226,7 +226,8 @@ export class Game {
       return { value: sets, target: 3 };
     }
     const worth = side.reduce((t, p) => t + this.netWorth(p.id), 0);
-    return { value: worth, target: raceTarget(goal)! };
+    const size = this.state.players.filter((p) => this.sameTeam(pid, p.id)).length;
+    return { value: worth, target: raceTarget(goal, this.state.settings.startingCash, size)! };
   }
 
   /** May `pid` mortgage or sell right now to raise cash for a bid? */
