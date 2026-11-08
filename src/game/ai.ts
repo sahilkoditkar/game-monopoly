@@ -34,16 +34,25 @@ interface Profile {
   setBonus: number;
   blockBonus: number;
   auctionFactor: number;
-  fairness: number;
+  /** Extra share of a city's price asked for when selling it completes the buyer's set. */
+  premium: number;
+  /** Extra share of a city's price it will pay when buying it completes its own set. */
+  pay: number;
+  /** Extra share of a city's price asked for when selling it for cash (a little over market). */
+  markup: number;
+  /** Share of the trade's value it lets slide when a deal is nearly even. */
+  tolerance: number;
+  /** Share of the deal it adds (or, when negative, haggles off the other side's slack) when it proposes. */
+  generosity: number;
   trades: boolean;
   maxHouses: number;
   mistakes: number;
 }
 
 const PROFILES: Record<Difficulty, Profile> = {
-  easy: { reserve: 60, threatWeight: 0, setBonus: 1.2, blockBonus: 1, auctionFactor: 0.6, fairness: 0.3, trades: false, maxHouses: 2, mistakes: 0.3 },
-  normal: { reserve: 90, threatWeight: 0.45, setBonus: 1.8, blockBonus: 1.3, auctionFactor: 1.0, fairness: 0.75, trades: true, maxHouses: 5, mistakes: 0.12 },
-  hard: { reserve: 25, threatWeight: 0.6, setBonus: 2.0, blockBonus: 1.3, auctionFactor: 1.0, fairness: 1.0, trades: true, maxHouses: 5, mistakes: 0 },
+  easy: { reserve: 60, threatWeight: 0, setBonus: 1.2, blockBonus: 1, auctionFactor: 0.6, premium: 0.15, pay: 0.75, markup: 0, tolerance: 0.1, generosity: 0.1, trades: true, maxHouses: 2, mistakes: 0.3 },
+  normal: { reserve: 90, threatWeight: 0.45, setBonus: 1.8, blockBonus: 1.3, auctionFactor: 1.0, premium: 0.35, pay: 1.0, markup: 0.05, tolerance: 0.02, generosity: 0, trades: true, maxHouses: 5, mistakes: 0.12 },
+  hard: { reserve: 25, threatWeight: 0.6, setBonus: 2.0, blockBonus: 1.3, auctionFactor: 1.0, premium: 0.6, pay: 1.2, markup: 0.1, tolerance: 0, generosity: -1, trades: true, maxHouses: 5, mistakes: 0 },
 };
 
 const profileOf = (g: Game, pid: number) => PROFILES[g.player(pid).difficulty] ?? PROFILES.normal;
@@ -117,42 +126,69 @@ function rentRisk(g: Game, pid: number): number {
   return risk;
 }
 
-/** Strategic worth of a player's portfolio, used to compare trades. */
-function portfolio(g: Game, pid: number, owner: (tile: number) => number | null, cash: number): number {
-  let total = cash;
+/**
+ * What a trade is worth to `pid` (either side of it), in money. Everything counts at market
+ * value. A seller asks a little over market for its cities (more on harder levels) and a bit
+ * extra for a city that completes the other side's set; a buyer will pay extra for one that
+ * completes its own; breaking up your own set costs the whole set's price. When the trade
+ * completes a set for both sides, it is a straight swap at market value. Humans are judged
+ * like a normal computer player.
+ */
+export function dealValue(g: Game, offer: TradeOffer, pid: number): { net: number; size: number } {
+  const meFrom = offer.from === pid;
+  const other = meFrom ? offer.to : offer.from;
+  const gets = meFrom ? offer.get : offer.give;
+  const gives = meFrom ? offer.give : offer.get;
+  const prof = g.player(pid).ai ? profileOf(g, pid) : PROFILES.normal;
+  const worth = (t: number) => TILES[t].price! - (g.state.props[t]?.mortgaged ? unmortgageCost(t) : 0);
+  const value = (side: TradeSide) => side.cash + 50 * side.jailCards + side.tiles.reduce((a, t) => a + worth(t), 0);
+  const after = (i: number) => (offer.give.tiles.includes(i) ? offer.to : offer.get.tiles.includes(i) ? offer.from : g.ownerOf(i));
+  const before = (i: number) => g.ownerOf(i);
+  const full = (who: number, gid: string, owner: (i: number) => number | null) =>
+    groupTiles(gid).every((i) => {
+      const o = owner(i);
+      return o !== null && g.sameTeam(who, o);
+    });
+  const price = (ts: number[]) => ts.reduce((a, t) => a + TILES[t].price!, 0);
+  const completes = (who: number) => Object.keys(GROUPS).some((gid) => full(who, gid, after) && !full(who, gid, before));
+  const mutual = completes(pid) && completes(other);
+  let premium = mutual ? 0 : -prof.markup * price(gives.tiles);
   for (const gid of Object.keys(GROUPS)) {
     const tiles = groupTiles(gid);
-    const mine = tiles.filter((i) => owner(i) === pid);
-    if (!mine.length) continue;
-    const sum = mine.reduce((a, i) => a + TILES[i].price! * (g.state.props[i]?.mortgaged ? 0.6 : 1), 0);
-    const mult = mine.length === tiles.length ? 2.6 : 1 + 0.15 * (mine.length - 1);
-    total += sum * mult;
+    const got = gets.tiles.filter((t) => tiles.includes(t));
+    const gave = gives.tiles.filter((t) => tiles.includes(t));
+    if (!got.length && !gave.length) continue;
+    if (gave.length && full(pid, gid, before) && !full(pid, gid, after)) premium -= price(tiles);
+    if (mutual) continue;
+    if (gave.length && full(other, gid, after) && !full(other, gid, before)) premium -= prof.premium * price(gave);
+    if (got.length && full(pid, gid, after) && !full(pid, gid, before)) premium += prof.pay * price(got);
   }
-  const transit = BUYABLE.filter((i) => TILES[i].kind === 'transit' && owner(i) === pid).length;
-  total += transit * 200 * (1 + 0.25 * Math.max(0, transit - 1));
-  const util = BUYABLE.filter((i) => TILES[i].kind === 'utility' && owner(i) === pid).length;
-  total += util * 150 * (util === 2 ? 1.3 : 1) * 0.8;
-  return total;
+  const vin = value(gets);
+  const vout = value(gives);
+  return { net: vin - vout + premium, size: Math.max(vin, vout) };
 }
 
-/** Change in strategic worth for both sides if the trade went through. */
-export function tradeGains(g: Game, offer: TradeOffer): { from: number; to: number } {
-  const before = (i: number) => g.ownerOf(i);
-  const after = (i: number) => {
-    if (offer.give.tiles.includes(i)) return offer.to;
-    if (offer.get.tiles.includes(i)) return offer.from;
-    return g.ownerOf(i);
-  };
-  const a = g.player(offer.from);
-  const b = g.player(offer.to);
-  const jail = 50;
-  const aCashAfter = a.cash - offer.give.cash + offer.get.cash + jail * (offer.get.jailCards - offer.give.jailCards);
-  const bCashAfter = b.cash - offer.get.cash + offer.give.cash + jail * (offer.give.jailCards - offer.get.jailCards);
-  return {
-    from: portfolio(g, a.id, after, aCashAfter) - portfolio(g, a.id, before, a.cash),
-    to: portfolio(g, b.id, after, bCashAfter) - portfolio(g, b.id, before, b.cash),
-  };
+/**
+ * How much more (in money) AI player `offer.to` wants before it says yes; 0 when the
+ * deal is already fair enough for it. A small slack lets nearly even deals through.
+ */
+export function tradeShortfall(g: Game, offer: TradeOffer): number {
+  if (g.sameTeam(offer.from, offer.to)) return 0;
+  const { net, size } = dealValue(g, offer, offer.to);
+  const slack = slackOf(g, offer.to, size);
+  return net + slack >= 0 ? 0 : Math.ceil(-(net + slack) / 10) * 10;
 }
+
+/** How far below even a player lets a deal of this size go. */
+function slackOf(g: Game, pid: number, size: number): number {
+  const prof = g.player(pid).ai ? profileOf(g, pid) : PROFILES.normal;
+  return prof.tolerance * size + (prof.tolerance > 0 ? 10 : 0);
+}
+
+const cashOk = (g: Game, offer: TradeOffer) => {
+  const b = g.player(offer.to);
+  return b.cash - offer.get.cash + offer.give.cash >= Math.min(b.cash, profileOf(g, offer.to).reserve);
+};
 
 /**
  * How an AI player would answer a trade, for the live hint in the trade window. Mirrors
@@ -160,14 +196,11 @@ export function tradeGains(g: Game, offer: TradeOffer): { from: number; to: numb
  */
 export function tradeOutlook(g: Game, offer: TradeOffer): 'yes' | 'close' | 'no' | 'cash' | 'nothing' {
   if (g.validateTrade(offer)) return 'nothing';
-  const prof = profileOf(g, offer.to);
-  const gains = tradeGains(g, offer);
-  if (gains.to <= 0) return 'no';
-  const b = g.player(offer.to);
-  if (b.cash - offer.get.cash + offer.give.cash < Math.min(b.cash, prof.reserve)) return 'cash';
-  const need = gains.from * prof.fairness;
-  if (gains.to >= need) return 'yes';
-  return gains.to >= need * 0.7 ? 'close' : 'no';
+  if (g.sameTeam(offer.from, offer.to)) return 'yes';
+  if (!cashOk(g, offer)) return 'cash';
+  const short = tradeShortfall(g, offer);
+  if (short === 0) return 'yes';
+  return short <= Math.max(50, 0.15 * dealValue(g, offer, offer.to).size) ? 'close' : 'no';
 }
 
 /** Whether AI player `offer.to` accepts the trade. */
@@ -175,18 +208,12 @@ export function acceptsTrade(g: Game, offer: TradeOffer): boolean {
   if (g.validateTrade(offer)) return false;
   // Teammates help each other.
   if (g.sameTeam(offer.from, offer.to)) return true;
-  const prof = profileOf(g, offer.to);
-  const gains = tradeGains(g, offer);
-  if (gains.to <= 0) return false;
-  const b = g.player(offer.to);
-  const cashAfter = b.cash - offer.get.cash + offer.give.cash;
-  if (cashAfter < Math.min(b.cash, prof.reserve)) return false;
-  return gains.to >= gains.from * prof.fairness;
+  return cashOk(g, offer) && tradeShortfall(g, offer) === 0;
 }
 
 const emptySide = (): TradeSide => ({ cash: 0, tiles: [], jailCards: 0 });
 
-/** Looks for a trade that would complete one of the AI's sets. */
+/** Looks for a fair trade that would complete one of the AI's sets. */
 function findTrade(g: Game, pid: number, mem: AiMemory): TradeOffer | null {
   const me = g.player(pid);
   const reserve = reserveFor(g, pid);
@@ -202,6 +229,7 @@ function findTrade(g: Game, pid: number, mem: AiMemory): TradeOffer | null {
     if (tiles.some((i) => (g.state.props[i]?.houses ?? 0) > 0)) continue;
     const key = `${holder}:${target}`;
     if (mem.offers[key] !== undefined && g.state.turnCount - mem.offers[key] < 12) continue;
+    mem.offers[key] = g.state.turnCount;
 
     // Sweeten with a property that doesn't hand them a full set, if we have one.
     const sweetener = g
@@ -215,28 +243,20 @@ function findTrade(g: Game, pid: number, mem: AiMemory): TradeOffer | null {
       })
       .sort((x, y) => TILES[x].price! - TILES[y].price!)[0];
 
+    // Offer what's fair to them, and keep it only if it's still good for us. Easy players
+    // round up generously; hard players haggle right down to what the other side would accept.
+    const prof = profileOf(g, pid);
+    let best: { offer: TradeOffer; net: number } | null = null;
     for (const withProp of sweetener !== undefined ? [true, false] : [false]) {
-      const give: TradeSide = { ...emptySide(), tiles: withProp ? [sweetener!] : [] };
-      const get: TradeSide = { ...emptySide(), tiles: missing };
-      const maxCash = Math.max(0, me.cash - reserve);
-      const step = Math.max(25, Math.round(TILES[target].price! / 10));
-      // Price the offer for how picky the receiver is (humans are treated like a normal AI).
-      const other = g.player(holder);
-      const fairness = other.ai ? profileOf(g, holder).fairness : PROFILES.normal.fairness;
-      for (let cash = 0; cash <= maxCash; cash += step) {
-        give.cash = cash;
-        const offer: TradeOffer = { from: pid, to: holder, give: { ...give }, get: { ...get } };
-        if (g.validateTrade(offer)) break;
-        const gains = tradeGains(g, offer);
-        if (gains.from <= 0) break;
-        const fair = gains.to > 0 && gains.to >= gains.from * fairness;
-        if (fair) {
-          mem.offers[key] = g.state.turnCount;
-          return offer;
-        }
-      }
+      const offer: TradeOffer = { from: pid, to: holder, give: { ...emptySide(), tiles: withProp ? [sweetener!] : [] }, get: { ...emptySide(), tiles: missing } };
+      const { net, size } = dealValue(g, offer, holder);
+      const want = -net + (prof.generosity >= 0 ? prof.generosity * size : -slackOf(g, holder, size));
+      offer.give.cash = want <= 0 ? 0 : Math.ceil(want / 10) * 10;
+      if (offer.give.cash > Math.max(0, me.cash - reserve) || g.validateTrade(offer)) continue;
+      const mineNet = dealValue(g, offer, pid).net;
+      if (mineNet > 0 && (!best || mineNet > best.net)) best = { offer, net: mineNet };
     }
-    mem.offers[key] = g.state.turnCount;
+    if (best) return best.offer;
   }
   return null;
 }

@@ -41,6 +41,8 @@ An original property-trading board game for **2–4 players** that runs in the b
 
 Tap any tile to see its deed. Use **🏗️ Manage** to build or mortgage, and **🤝 Trade** to make deals.
 
+Computer players trade at fair prices. A city for cash goes for about its price, a little more on harder levels. A city that completes your colour set costs extra: about 1.05× on Easy, 1.3× on Normal and 1.7× on Hard. A swap that completes a set for both sides is priced at market value, so only the price difference counts. The trade window tells you how far off your offer is.
+
 ## Development
 
 ```bash
