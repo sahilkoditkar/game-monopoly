@@ -107,6 +107,20 @@ describe('team mode', () => {
 });
 
 describe('race mode', () => {
+  it('has a "double your money" race that follows the starting cash', () => {
+    const g = Game.create(cfg(2), { goal: 'double' }, 8);
+    expect(g.raceProgress(0)).toEqual({ value: 1500, target: 3000 });
+    expect(Game.create(cfg(2), { goal: 'double', startingCash: 2000 }, 8).raceProgress(0)!.target).toBe(4000);
+    // In teams it is the team's combined starting money, doubled.
+    expect(Game.create(cfg(4, false, true), { goal: 'double', teams: true }, 8).raceProgress(0)).toEqual({ value: 3000, target: 6000 });
+    g.player(0).cash = 2999;
+    g.drain();
+    expect(g.state.phase).not.toBe('gameover');
+    g.player(0).cash = 3000;
+    g.drain();
+    expect(g.state.winner).toBe(0);
+  });
+
   it('ends the moment someone reaches the net worth goal', () => {
     const g = Game.create(cfg(2), { goal: 'worth5000' }, 8);
     g.player(1).cash = 5200;
@@ -129,7 +143,7 @@ describe('race mode', () => {
   });
 
   it('plays to a finish with computer players', () => {
-    for (const goal of ['worth5000', 'sets3'] as const) {
+    for (const goal of ['double', 'worth5000', 'sets3'] as const) {
       const g = playOut(10, { goal, roundLimit: 0 }, cfg(3, true));
       expect(g.state.phase).toBe('gameover');
     }

@@ -143,6 +143,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
             : ending === 'race'
               ? `<div class="seg small end-sub">${(
                   [
+                    ['double', tr('2× money')],
                     ['worth5000', money(5000)],
                     ['worth7500', money(7500)],
                     ['sets3', tr('3 sets')],
@@ -152,12 +153,14 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
                   .join('')}</div>`
               : ''
         }
-        <p class="edition-note">${
+        <p class="edition-note end-note">${
           ending === 'last'
             ? tr('Play until everyone else is bankrupt.')
             : ending === 'rounds'
               ? tr('After {n} rounds the richest wins (or the last one standing, if that comes first).', { n: settings.roundLimit })
-              : tr('The first to reach the goal wins.')
+              : settings.goal === 'double'
+                ? tr('The first to double their starting money ({amount} net worth) wins.', { amount: money(2 * settings.startingCash) })
+                : tr('The first to reach the goal wins.')
         }</p>
 
         <div class="section-title">${tr('Board')}</div>
@@ -315,7 +318,7 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
     root.querySelectorAll<HTMLButtonElement>('.end-seg button').forEach((b) =>
       b.addEventListener('click', () => {
         const end = b.dataset.end;
-        settings.goal = end === 'race' ? (settings.goal ?? 'worth5000') : undefined;
+        settings.goal = end === 'race' ? (settings.goal ?? 'double') : undefined;
         settings.roundLimit = end === 'rounds' ? settings.roundLimit || 25 : 0;
         play('click');
         draw();
@@ -340,6 +343,9 @@ export function renderSetup(host: HTMLElement, opts: { hasSave: boolean; onStart
         const key = inp.dataset.opt as keyof Settings;
         if (inp instanceof HTMLInputElement && inp.type === 'checkbox') (settings[key] as boolean) = inp.checked;
         else (settings[key] as number) = Number(inp.value);
+        const note = root.querySelector('.end-note');
+        if (key === 'startingCash' && settings.goal === 'double' && note)
+          note.textContent = tr('The first to double their starting money ({amount} net worth) wins.', { amount: money(2 * settings.startingCash) });
       }),
     );
     root.querySelectorAll<HTMLButtonElement>('.edition-seg button').forEach((b) =>

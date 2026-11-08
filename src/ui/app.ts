@@ -1,4 +1,4 @@
-import { acceptsTrade, apply, decide, fallback, newMemory, tradeOutlook, type AiMemory } from '../game/ai';
+import { acceptsTrade, apply, decide, fallback, newMemory, tradeOutlook, tradeShortfall, type AiMemory } from '../game/ai';
 import { BUYABLE, GROUPS, JAIL_FINE, JAIL_INDEX, TILES, TRANSIT_RENTS, groupTiles, houseCost, mortgageValue, unmortgageCost } from '../game/board';
 import { CARD_BY_ID } from '../game/cards';
 import { capitalize, currentEdition, localize } from '../game/editions';
@@ -277,7 +277,7 @@ export class GameApp {
     this.roundEl.textContent =
       (s.settings.daily ? '📅 ' : '') +
       (s.settings.roundLimit ? tr('Round {n} / {max}', { n: Math.min(s.round, s.settings.roundLimit), max: s.settings.roundLimit }) : tr('Round {n}', { n: s.round })) +
-      (s.settings.goal ? ` · 🏁 ${s.settings.goal === 'sets3' ? tr('3 sets') : money(s.settings.goal === 'worth5000' ? 5000 : 7500)}` : '');
+      (s.settings.goal ? ` · 🏁 ${s.settings.goal === 'sets3' ? tr('3 sets') : money(this.game.raceProgress(this.s.current)?.target ?? 0)}` : '');
     this.board.setTokens(s);
     this.board.renderTiles(s);
     this.renderPlayers();
@@ -348,7 +348,7 @@ export class GameApp {
   private goalLabel(): string {
     const goal = this.s.settings.goal;
     if (!goal) return '';
-    return goal === 'sets3' ? tr('Race to 3 full colour sets') : tr('Race to {amount} net worth', { amount: money(goal === 'worth5000' ? 5000 : 7500) });
+    return goal === 'sets3' ? tr('Race to 3 full colour sets') : tr('Race to {amount} net worth', { amount: money(this.game.raceProgress(this.s.current)?.target ?? 0) });
   }
 
   private syncCash() {
@@ -1248,12 +1248,18 @@ export class GameApp {
       const cash = el('label', 'tcash');
       cash.innerHTML = `💵 ${tr('Cash')} <input type="range" min="0" max="${owner.cash}" step="10" value="${side.cash}"/><input type="number" min="0" max="${owner.cash}" value="${side.cash}"/>`;
       const [range, num] = cash.querySelectorAll('input');
-      const set = (v: number) => {
-        side.cash = Math.max(0, Math.min(owner.cash, Math.floor(v || 0)));
-        range.value = num.value = String(side.cash);
-        refreshFooter();
+      // Only redraw the footer when the amount really changes: a redraw while the
+      // field loses focus would swallow a tap on "Propose trade".
+      const set = (v: number, writeBack = true) => {
+        const next = Math.max(0, Math.min(owner.cash, Math.floor(v || 0)));
+        const changed = next !== side.cash;
+        side.cash = next;
+        range.value = String(next);
+        if (writeBack) num.value = String(next);
+        if (changed) refreshFooter();
       };
       range.addEventListener('input', () => set(Number(range.value)));
+      num.addEventListener('input', () => set(Number(num.value), false));
       num.addEventListener('change', () => set(Number(num.value)));
       col.appendChild(cash);
       if (owner.jailCards.length) {
@@ -1277,10 +1283,11 @@ export class GameApp {
       const target = this.game.player(partner);
       if (!err && target.ai) {
         const name = `<b>${escapeHtml(target.name)}</b>`;
+        const amount = `<b>${money(tradeShortfall(this.game, offer))}</b>`;
         const view = {
           yes: ['good', '✅', tr('{name} would accept this.', { name })],
-          close: ['warn', '🤔', tr('Close. {name} wants a little more.', { name })],
-          no: ['bad', '❌', tr('{name} would turn this down.', { name })],
+          close: ['warn', '🤔', tr('Close. {name} wants about {amount} more.', { name, amount })],
+          no: ['bad', '❌', tr('{name} would turn this down. It is about {amount} short for them.', { name, amount })],
           cash: ['bad', '💸', tr("{name} can't spare that much cash.", { name })],
           nothing: ['', '', ''],
         }[tradeOutlook(this.game, offer)];
